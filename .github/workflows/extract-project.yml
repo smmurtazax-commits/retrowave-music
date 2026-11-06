@@ -1,0 +1,35 @@
+name: Extract project update
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract project zip
+        run: |
+          set -e
+          rm -rf /tmp/project_extract
+          mkdir -p /tmp/project_extract
+          unzip -o retrowave-music-project.zip -x '*/.github/*' '.github/*' -d /tmp/project_extract
+          ls -la /tmp/project_extract
+          if [ -f /tmp/project_extract/pubspec.yaml ]; then
+            SRC=/tmp/project_extract
+          else
+            SRC=$(find /tmp/project_extract -maxdepth 2 -name pubspec.yaml -print -quit | xargs dirname)
+            if [ -z "$SRC" ]; then echo "pubspec.yaml not found in zip"; find /tmp/project_extract | head -n 100; exit 1; fi
+          fi
+          echo "Source dir: $SRC"
+          rsync -a --delete --exclude='.git' --exclude='.github' --exclude='retrowave-music-project.zip' "$SRC"/ ./
+          git config user.name "smmurtazax-commits"
+          git config user.email "smmurtazax-commits@users.noreply.github.com"
+          rm -f retrowave-music-project.zip
+          rm -f .github/workflows/extract-project.yml
+          git add -A
+          git status --short
+          if git diff --cached --quiet; then echo "No changes to commit"; else git commit -m "Update project from retrowave-music-project.zip"; git push; fi
