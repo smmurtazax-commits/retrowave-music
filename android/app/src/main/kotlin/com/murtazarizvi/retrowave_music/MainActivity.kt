@@ -581,7 +581,8 @@ class MainActivity : FlutterFragmentActivity() {
                 .build()
             MediaQueueItem.Builder(info).setAutoplay(true).build()
         }.toTypedArray()
-        client.queueLoad(queueItems, startIndex, MediaStatus.REPEAT_MODE_ALL, null)
+        // 2 = REPEAT_MODE_ALL (the named constant was removed from newer Cast SDKs)
+        client.queueLoad(queueItems, startIndex, 2, null)
     }
 
     override fun onDestroy() {
