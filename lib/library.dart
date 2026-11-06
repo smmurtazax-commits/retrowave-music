@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui' show DisplayFeatureType;
 
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
@@ -146,9 +147,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
           body: ThemedBackground(
             palette: p,
             child: SafeArea(
-              child: Column(
-                children: [
-                  _header(p),
+              child: LayoutBuilder(
+                builder: (context, cons) {
+                  final column = Column(
+                    children: [
+                      _header(p),
                   if (_hasPermission && !_checking) _sourceSwitch(p),
                   if (_hasPermission && !_checking) _searchField(p),
                   if (_hasPermission && !_checking)
@@ -162,8 +165,33 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       builder: (context, _, __) => _body(p),
                     ),
                   ),
-                  const MiniPlayer(),
-                ],
+                      const MiniPlayer(),
+                    ],
+                  );
+                  // Wide screens (Fold inner display, tablets): two
+                  // panes — library on the left, the player on the
+                  // right — instead of one stretched phone column.
+                  if (cons.maxWidth < 600) return column;
+                  // Proper foldable behaviour (Jetpack WindowManager
+                  // display features, surfaced by Flutter): when the
+                  // phone reports a vertical hinge, split the panes
+                  // exactly at the hinge instead of a fixed width.
+                  var paneWidth = 400.0;
+                  for (final f in MediaQuery.of(context).displayFeatures) {
+                    if (f.type == DisplayFeatureType.hinge &&
+                        f.bounds.height > f.bounds.width) {
+                      final w = cons.maxWidth - f.bounds.left;
+                      if (w >= 328 && w <= 560) paneWidth = w;
+                    }
+                  }
+                  return Row(
+                    children: [
+                      Expanded(child: column),
+                      Container(width: 1, color: p.card.withOpacity(0.6)),
+                      SizedBox(width: paneWidth, child: const NowPlayingPane()),
+                    ],
+                  );
+                },
               ),
             ),
           ),
