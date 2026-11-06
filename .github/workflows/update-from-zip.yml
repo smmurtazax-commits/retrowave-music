@@ -24,7 +24,7 @@ jobs:
           if [ "$COUNT" = "1" ] && [ -d "$ONLY" ]; then
             SRC="$ONLY"
           fi
-          rsync -a --delete --exclude='.github' --exclude='retrowave-music-project.zip' "$SRC"/ ./
+          rsync -a --delete --exclude='.github' --exclude='.git' --exclude='retrowave-music-project.zip' "$SRC"/ ./
       - name: Commit and push updated files
         run: |
           git config user.name "github-actions[bot]"
