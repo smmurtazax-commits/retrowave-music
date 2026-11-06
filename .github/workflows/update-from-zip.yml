@@ -1,0 +1,59 @@
+name: Update project from zip
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Extract zip into repo root
+        run: |
+          set -e
+          unzip -o retrowave-music-project.zip -d /tmp/project
+          EXTRACT_DIR=/tmp/project
+          TOP_COUNT=$(find "$EXTRACT_DIR" -mindepth 1 -maxdepth 1 | wc -l)
+          if [ "$TOP_COUNT" = "1" ] && [ -d "$(find "$EXTRACT_DIR" -mindepth 1 -maxdepth 1)" ]; then
+            EXTRACT_DIR=$(find "$EXTRACT_DIR" -mindepth 1 -maxdepth 1)
+          fi
+          echo "Extracting from $EXTRACT_DIR"
+          ls -la "$EXTRACT_DIR"
+          rsync -a --delete --exclude='.git' --exclude='.github' "$EXTRACT_DIR/" ./
+          ls -la
+
+      - name: Commit and push changes
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git status --short
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update project from retrowave-music-project.zip (build #9)"
+            git push
+          fi
+
+      - name: Clean up temporary zip and workflow
+        if: always()
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          rm -f retrowave-music-project.zip
+          rm -f .github/workflows/update-from-zip.yml
+          git add -A
+          git status --short
+          if git diff --cached --quiet; then
+            echo "Nothing to clean up"
+          else
+            git commit -m "Remove temporary update zip and workflow"
+            git push
+          fi
