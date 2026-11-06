@@ -27,10 +27,11 @@ Future<void> main() async {
       customColor.value = Color(savedColor);
     }
     // Settings, playlists, and the playback preferences they drive.
+    // (The player itself is deliberately NOT touched here — see
+    // _initPlayback for why its first use waits for setup.)
     await SettingsStore.instance.load(prefs);
     await PlaylistStore.instance.load(prefs);
     recomputeEffectiveDark();
-    PlayerService.instance.applyStoredSettings();
   } catch (_) {
     // A bad saved value must never freeze the launch screen.
   }
@@ -43,11 +44,11 @@ Future<void> main() async {
 }
 
 Future<void> _initPlayback() async {
-  try {
-    await AudioFx.setLockScreenControls(
-            SettingsStore.instance.lockScreenControls.value)
-        .timeout(const Duration(seconds: 3), onTimeout: () {});
-  } catch (_) {}
+  // Background playback setup MUST finish before the player object is
+  // created or used — a player born before this setup can sit at
+  // 0:00 forever. The order below is the fix: setup first, player
+  // after. Every step is timeout-guarded so nothing can stall, and
+  // the gate always opens at the end, whatever happened.
   try {
     await JustAudioBackground.init(
       androidNotificationChannelId: 'com.murtazarizvi.retrowave.channel.audio',
@@ -55,6 +56,15 @@ Future<void> _initPlayback() async {
       androidNotificationOngoing: true,
     ).timeout(const Duration(seconds: 10), onTimeout: () {});
   } catch (_) {}
+  try {
+    await AudioFx.setLockScreenControls(
+            SettingsStore.instance.lockScreenControls.value)
+        .timeout(const Duration(seconds: 3), onTimeout: () {});
+  } catch (_) {}
+  try {
+    PlayerService.instance.applyStoredSettings();
+  } catch (_) {}
+  PlayerService.instance.completeInit();
 }
 
 class RetroWaveApp extends StatefulWidget {

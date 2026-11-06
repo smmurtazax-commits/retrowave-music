@@ -19,12 +19,31 @@ class PlayerService {
   /// The songs in the current playing queue, in order.
   List<SongModel> queue = <SongModel>[];
 
-  Future<void> playQueue(List<SongModel> songs, int startIndex) async {
-    _markSelf();
-    queue = List<SongModel>.of(songs);
-    final sources = songs.map((s) {
+  /// Completed by main() once the background-playback setup has run
+  /// (or timed out). Playback waits for it — briefly — because the
+  /// player must never be used before that setup finishes.
+  final Completer<void> _initGate = Completer<void>();
+  void completeInit() {
+    if (!_initGate.isCompleted) _initGate.complete();
+  }
+
+  Future<void> _ready() async {
+    try {
+      await _initGate.future.timeout(const Duration(seconds: 3),
+          onTimeout: () {});
+    } catch (_) {}
+  }
+
+  /// A user-visible playback problem ("That song couldn't be played"),
+  /// or null. The library shows it as a small message instead of the
+  /// old behaviour: failing silently and sitting at 0:00.
+  final ValueNotifier<String?> playbackError = ValueNotifier<String?>(null);
+
+  List<AudioSource> _sourcesFor(List<SongModel> songs,
+      {required bool filePaths}) {
+    return songs.map((s) {
       final Uri uri;
-      if (s.uri != null && s.uri!.isNotEmpty) {
+      if (!filePaths && s.uri != null && s.uri!.isNotEmpty) {
         uri = Uri.parse(s.uri!);
       } else {
         uri = Uri.file(s.data);
@@ -49,10 +68,34 @@ class PlayerService {
         ),
       );
     }).toList();
-    await player.setAudioSource(
-      ConcatenatingAudioSource(children: sources),
-      initialIndex: startIndex,
-    );
+  }
+
+  Future<void> playQueue(List<SongModel> songs, int startIndex) async {
+    _markSelf();
+    await _ready();
+    queue = List<SongModel>.of(songs);
+    playbackError.value = null;
+    try {
+      await player.setAudioSource(
+        ConcatenatingAudioSource(
+            children: _sourcesFor(songs, filePaths: false)),
+        initialIndex: startIndex,
+      );
+    } catch (_) {
+      // The media-store address failed for this queue — retry the
+      // same songs through their plain file paths before giving up.
+      try {
+        await player.setAudioSource(
+          ConcatenatingAudioSource(
+              children: _sourcesFor(songs, filePaths: true)),
+          initialIndex: startIndex,
+        );
+      } catch (_) {
+        playbackError.value =
+            "That song couldn't be played — the file may have moved.";
+        return;
+      }
+    }
     await player.play();
   }
 

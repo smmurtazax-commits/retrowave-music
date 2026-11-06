@@ -43,7 +43,28 @@ class _LibraryScreenState extends State<LibraryScreen> {
   @override
   void initState() {
     super.initState();
+    PlayerService.instance.playbackError.addListener(_showPlaybackError);
     _init();
+  }
+
+  @override
+  void dispose() {
+    PlayerService.instance.playbackError.removeListener(_showPlaybackError);
+    super.dispose();
+  }
+
+  /// Playback problems used to fail silently (song stuck at 0:00).
+  /// Now the user sees one small, honest message instead.
+  void _showPlaybackError() {
+    final msg = PlayerService.instance.playbackError.value;
+    if (msg == null || !mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), duration: const Duration(seconds: 4)),
+      );
+      PlayerService.instance.playbackError.value = null;
+    });
   }
 
   Future<void> _init() async {
