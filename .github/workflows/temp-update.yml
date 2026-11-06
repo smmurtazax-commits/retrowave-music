@@ -1,0 +1,28 @@
+name: Temporary project update
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract project zip
+        run: |
+          rm -rf /tmp/proj
+          mkdir -p /tmp/proj
+          unzip -o retrowave-music-project.zip -d /tmp/proj
+          rsync -a --exclude='.github' /tmp/proj/ ./
+          rm -f retrowave-music-project.zip
+          rm -f .github/workflows/temp-update.yml
+      - name: Commit and push
+        run: |
+          git config user.name "smmurtazax-commits"
+          git config user.email "sm.murtazax@gmail.com"
+          git add -A
+          git commit -m "Update project from retrowave-music-project.zip" || echo "Nothing to commit"
+          git push
