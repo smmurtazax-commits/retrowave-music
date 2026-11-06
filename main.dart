@@ -36,27 +36,30 @@ Future<void> main() async {
   } catch (_) {
     // A bad saved value must never freeze the launch screen.
   }
-  runApp(const RetroWaveApp());
-  // Playback plumbing starts only AFTER the UI is on screen. The
-  // background-audio handshake can stall on some phones; it must
-  // never hold the opening screen hostage, so each step has a
-  // timeout and failures are swallowed — playback itself still works.
-  unawaited(_initPlayback());
-}
-
-Future<void> _initPlayback() async {
-  // Background playback setup MUST finish before the player object is
-  // created or used — a player born before this setup can sit at
-  // 0:00 forever. The order below is the fix: setup first, player
-  // after. Every step is timeout-guarded so nothing can stall, and
-  // the gate always opens at the end, whatever happened.
+  // Background playback setup runs BEFORE runApp — this ordering is
+  // load-bearing. The first screen touches the player service the
+  // moment it builds, so if setup were still running at that point,
+  // the player would be born before the background service exists —
+  // and a player born too early fails EVERY song load on some phones
+  // (builds #7–#10 on the S24: all loads failed, position/next/seek
+  // dead). The wait is timeout-guarded, so the worst case is a few
+  // extra seconds on the system splash — it can never freeze there.
   try {
     await JustAudioBackground.init(
       androidNotificationChannelId: 'com.murtazarizvi.retrowave.channel.audio',
       androidNotificationChannelName: 'RetroWave playback',
       androidNotificationOngoing: true,
-    ).timeout(const Duration(seconds: 10), onTimeout: () {});
-  } catch (_) {}
+    ).timeout(const Duration(seconds: 6), onTimeout: () {});
+  } catch (_) {
+    // Background support failed to start; in-app playback still works.
+  }
+  runApp(const RetroWaveApp());
+  // The remaining playback plumbing starts only AFTER the UI is on
+  // screen; each step is guarded so none of it can stall the app.
+  unawaited(_initPlayback());
+}
+
+Future<void> _initPlayback() async {
   try {
     await AudioFx.setLockScreenControls(
             SettingsStore.instance.lockScreenControls.value)

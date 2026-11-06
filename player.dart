@@ -49,13 +49,11 @@ class PlayerService {
       } else {
         uri = Uri.file(s.data);
       }
-      // Album art from the phone's media store, so the lock screen,
-      // the notification controls and Samsung's Now Bar capsule show
-      // the song's artwork, title and artist.
-      final Uri? artUri = s.albumId != null
-          ? Uri.parse(
-              'content://media/external/audio/albumart/${s.albumId}')
-          : null;
+      // No artUri on purpose (build #11): a media-store artwork
+      // address rides along with every song's load, and a bad one can
+      // poison the load itself on some phones. The app still shows
+      // artwork everywhere in its own UI; only the lock-screen /
+      // notification picture is paused until playback is proven.
       return AudioSource.uri(
         uri,
         tag: MediaItem(
@@ -65,10 +63,21 @@ class PlayerService {
               ? 'Unknown artist'
               : s.artist,
           album: s.album ?? '',
-          artUri: artUri,
         ),
       );
     }).toList();
+  }
+
+  /// The most recent player-side error text, captured so a failure
+  /// can be READ (in the message shown to the user) instead of
+  /// guessed at. Set by the load ladder below and by the player's
+  /// own error stream.
+  String? lastPlayerError;
+
+  String _shortError(Object e) {
+    var s = e.toString().replaceAll('\n', ' ');
+    if (s.length > 220) s = '${s.substring(0, 220)}…';
+    return s;
   }
 
   Future<void> playQueue(List<SongModel> songs, int startIndex) async {
@@ -76,28 +85,57 @@ class PlayerService {
     await _ready();
     queue = List<SongModel>.of(songs);
     playbackError.value = null;
-    try {
-      await player.setAudioSource(
-        ConcatenatingAudioSource(
-            children: _sourcesFor(songs, filePaths: false)),
-        initialIndex: startIndex,
-      );
-    } catch (_) {
-      // The media-store address failed for this queue — retry the
-      // same songs through their plain file paths before giving up.
+    lastPlayerError = null;
+    Object? loadError;
+
+    // Load ladder — each rung removes one suspect, and every refusal
+    // is kept so the final message can quote the phone's own words:
+    //   1. the whole queue via media-store addresses
+    //   2. the whole queue via plain file paths
+    //   3. just the tapped song on its own (no queue machinery)
+    final attempts = <Future<void> Function()>[
+      () => player.setAudioSource(
+            ConcatenatingAudioSource(
+                children: _sourcesFor(songs, filePaths: false)),
+            initialIndex: startIndex,
+          ),
+      () => player.setAudioSource(
+            ConcatenatingAudioSource(
+                children: _sourcesFor(songs, filePaths: true)),
+            initialIndex: startIndex,
+          ),
+      () => player.setAudioSource(
+            _sourcesFor([songs[startIndex]], filePaths: false).single,
+          ),
+    ];
+    var loadedRung = -1;
+    for (var i = 0; i < attempts.length; i++) {
       try {
-        await player.setAudioSource(
-          ConcatenatingAudioSource(
-              children: _sourcesFor(songs, filePaths: true)),
-          initialIndex: startIndex,
-        );
-      } catch (_) {
-        playbackError.value =
-            "That song couldn't be played — the file may have moved.";
-        return;
+        await attempts[i]();
+        loadedRung = i;
+        break;
+      } catch (e) {
+        loadError = e;
+        lastPlayerError = _shortError(e);
       }
     }
-    await player.play();
+    if (loadedRung < 0) {
+      playbackError.value = "That song couldn't be played. "
+          'Reason: ${lastPlayerError ?? loadError}';
+      return;
+    }
+    if (loadedRung == 2) {
+      // The single-song rung loaded — shrink the queue to match what
+      // the player actually holds, so Next/Previous and the current
+      // song display stay truthful for this session.
+      queue = [songs[startIndex]];
+    }
+    try {
+      await player.play();
+    } catch (e) {
+      lastPlayerError = _shortError(e);
+      playbackError.value = "That song couldn't be played. Reason: $lastPlayerError";
+    }
   }
 
   SongModel? get currentSong {
@@ -148,8 +186,14 @@ class PlayerService {
   // --- Stored playback settings ----------------------------------------
 
   void applyStoredSettings() {
-    player.setSpeed(SettingsStore.instance.playSpeed.value);
-    player.setSkipSilenceEnabled(SettingsStore.instance.skipSilence.value);
+    // Fire-and-forget, but never unhandled: on a player that is still
+    // waking up these can refuse, and a refusal here must stay quiet.
+    player
+        .setSpeed(SettingsStore.instance.playSpeed.value)
+        .catchError((_) {});
+    player
+        .setSkipSilenceEnabled(SettingsStore.instance.skipSilence.value)
+        .catchError((_) {});
   }
 
   // --- Crossfade engine (fade out / fade in) + external-start guard ----
@@ -157,6 +201,16 @@ class PlayerService {
   Timer? _fadeTimer;
 
   void _initEngines() {
+    // Keep the player's own error reports readable: when a load or
+    // playback fails asynchronously, the platform's words land here
+    // and in the message the user sees, instead of vanishing.
+    player.playbackEventStream.listen((_) {}, onError: (Object e) {
+      lastPlayerError = _shortError(e);
+      if (playbackError.value == null) {
+        playbackError.value =
+            "That song couldn't be played. Reason: $lastPlayerError";
+      }
+    });
     player.playerStateStream.listen((state) {
       if (state.playing &&
           !_selfInitiated &&
