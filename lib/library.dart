@@ -6,6 +6,7 @@ import 'package:just_audio/just_audio.dart';
 import 'media_query.dart';
 
 import 'ai_studio.dart';
+import 'dj_disc.dart';
 import 'glass.dart';
 import 'now_playing.dart';
 import 'player.dart';
@@ -227,11 +228,27 @@ class _LibraryScreenState extends State<LibraryScreen> {
       padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
       child: Row(
         children: [
-          Icon(Icons.album, color: p.accent, size: 28),
-          const SizedBox(width: 8),
-          const Text(
-            'RetroWave',
-            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+          // The logo is a door: tap it to open the DJ Disc.
+          InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const DjDiscScreen()),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.album, color: p.accent, size: 28),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'RetroWave',
+                    style:
+                        TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+            ),
           ),
           const Spacer(),
           if (_hasPermission)
