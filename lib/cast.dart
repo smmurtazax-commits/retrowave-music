@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:on_audio_query/on_audio_query.dart';
+import 'media_query.dart';
 
 import 'player.dart';
 

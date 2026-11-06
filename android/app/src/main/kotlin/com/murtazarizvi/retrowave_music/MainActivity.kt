@@ -1,16 +1,25 @@
 package com.murtazarizvi.retrowave_music
 
+import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.media.audiofx.AudioEffect
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
 import android.media.audiofx.Virtualizer
 import android.net.Uri
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.provider.MediaStore
 import android.provider.Settings
 import android.view.ViewGroup
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.mediarouter.app.MediaRouteButton
 import androidx.mediarouter.media.MediaRouteSelector
 import com.google.android.gms.cast.CastMediaControlIntent
@@ -37,11 +46,17 @@ import io.flutter.plugin.common.MethodChannel
  * Channel "retrowave/cast": Google Cast session handling. The Dart side
  * serves the song files over the local network; this side owns the Cast
  * session and loads the queue onto the receiver.
+ *
+ * Channel "retrowave/media": the device media library — permission
+ * checks/requests plus MediaStore queries for songs, albums, artists
+ * and album artwork. This replaces the unmaintained on_audio_query
+ * plugin, whose Android module cannot build on current AGP versions.
  */
 class MainActivity : FlutterFragmentActivity() {
 
     private val fxChannelName = "retrowave/audiofx"
     private val castChannelName = "retrowave/cast"
+    private val mediaChannelName = "retrowave/media"
     private val playbackChannelId = "com.murtazarizvi.retrowave.channel.audio"
 
     // --- audiofx ---
@@ -59,6 +74,7 @@ class MainActivity : FlutterFragmentActivity() {
         super.configureFlutterEngine(flutterEngine)
         setupFxChannel(flutterEngine)
         setupCastChannel(flutterEngine)
+        setupMediaChannel(flutterEngine)
     }
 
     // ------------------------------------------------------------------
@@ -233,6 +249,242 @@ class MainActivity : FlutterFragmentActivity() {
             startActivity(intent)
         } catch (e: Exception) {
             // ignore
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Media library channel (MediaStore)
+    // ------------------------------------------------------------------
+
+    private val mediaPermRequestCode = 9201
+    private var pendingPermResult: MethodChannel.Result? = null
+
+    private fun audioPermission(): String =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+            Manifest.permission.READ_MEDIA_AUDIO
+        else
+            Manifest.permission.READ_EXTERNAL_STORAGE
+
+    private fun setupMediaChannel(flutterEngine: FlutterEngine) {
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, mediaChannelName)
+            .setMethodCallHandler { call, result ->
+                try {
+                    when (call.method) {
+                        "permissionsStatus" -> result.success(
+                            ContextCompat.checkSelfPermission(
+                                this, audioPermission()
+                            ) == PackageManager.PERMISSION_GRANTED
+                        )
+                        "permissionsRequest" -> {
+                            if (ContextCompat.checkSelfPermission(
+                                    this, audioPermission()
+                                ) == PackageManager.PERMISSION_GRANTED
+                            ) {
+                                result.success(true)
+                            } else {
+                                pendingPermResult = result
+                                ActivityCompat.requestPermissions(
+                                    this,
+                                    arrayOf(audioPermission()),
+                                    mediaPermRequestCode
+                                )
+                            }
+                        }
+                        "querySongs" -> runMediaQuery(result) { querySongsList(null, null) }
+                        "queryAlbums" -> runMediaQuery(result) { queryAlbumsList() }
+                        "queryArtists" -> runMediaQuery(result) { queryArtistsList() }
+                        "queryAudiosFrom" -> {
+                            val type = call.argument<String>("type") ?: "album"
+                            val id = (call.argument<Number>("id"))?.toLong() ?: -1L
+                            val column =
+                                if (type == "artist") MediaStore.Audio.Media.ARTIST_ID
+                                else MediaStore.Audio.Media.ALBUM_ID
+                            runMediaQuery(result) {
+                                querySongsList("$column = ?", arrayOf(id.toString()))
+                            }
+                        }
+                        "queryArtwork" -> {
+                            val id = (call.argument<Number>("id"))?.toLong() ?: -1L
+                            val type = call.argument<String>("type") ?: "AUDIO"
+                            runMediaQuery(result) { artworkBytes(id, type) }
+                        }
+                        else -> result.notImplemented()
+                    }
+                } catch (e: Exception) {
+                    result.error("MEDIA_ERROR", e.message, null)
+                }
+            }
+    }
+
+    /** MediaStore work runs off the main thread; results post back to it. */
+    private fun runMediaQuery(result: MethodChannel.Result, work: () -> Any?) {
+        Thread {
+            try {
+                val value = work()
+                Handler(Looper.getMainLooper()).post { result.success(value) }
+            } catch (e: Exception) {
+                Handler(Looper.getMainLooper()).post {
+                    result.error("MEDIA_ERROR", e.message, null)
+                }
+            }
+        }.start()
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        if (requestCode == mediaPermRequestCode) {
+            val granted = grantResults.isNotEmpty() &&
+                grantResults[0] == PackageManager.PERMISSION_GRANTED
+            pendingPermResult?.success(granted)
+            pendingPermResult = null
+            return
+        }
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+    }
+
+    private fun querySongsList(
+        selection: String?,
+        selectionArgs: Array<String>?
+    ): List<Map<String, Any?>> {
+        val uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+        val projection = arrayOf(
+            MediaStore.Audio.Media._ID,
+            MediaStore.Audio.Media.TITLE,
+            MediaStore.Audio.Media.ARTIST,
+            MediaStore.Audio.Media.ALBUM,
+            MediaStore.Audio.Media.ALBUM_ID,
+            MediaStore.Audio.Media.DURATION,
+            MediaStore.Audio.Media.DATA
+        )
+        val sel = if (selection == null)
+            MediaStore.Audio.Media.IS_MUSIC + " != 0"
+        else
+            MediaStore.Audio.Media.IS_MUSIC + " != 0 AND (" + selection + ")"
+        val out = mutableListOf<Map<String, Any?>>()
+        contentResolver.query(
+            uri, projection, sel, selectionArgs, MediaStore.Audio.Media.TITLE + " ASC"
+        )?.use { c ->
+            val iId = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+            val iTitle = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+            val iArtist = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+            val iAlbum = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
+            val iAlbumId = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
+            val iDuration = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
+            val iData = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
+            while (c.moveToNext()) {
+                val id = c.getLong(iId)
+                val data = c.getString(iData) ?: ""
+                var title = c.getString(iTitle)
+                if (title.isNullOrBlank()) {
+                    title = data.substringAfterLast('/').substringBeforeLast('.')
+                }
+                val ext = data.substringAfterLast('.', "").lowercase()
+                out.add(
+                    mapOf(
+                        "id" to id,
+                        "data" to data,
+                        "uri" to ContentUris.withAppendedId(uri, id).toString(),
+                        "title" to title,
+                        "artist" to c.getString(iArtist),
+                        "album" to c.getString(iAlbum),
+                        "albumId" to c.getLong(iAlbumId),
+                        "duration" to c.getLong(iDuration),
+                        "fileExtension" to ext.ifEmpty { null }
+                    )
+                )
+            }
+        }
+        return out
+    }
+
+    private fun queryAlbumsList(): List<Map<String, Any?>> {
+        val uri = MediaStore.Audio.Albums.EXTERNAL_CONTENT_URI
+        val projection = arrayOf(
+            MediaStore.Audio.Albums._ID,
+            MediaStore.Audio.Albums.ALBUM,
+            MediaStore.Audio.Albums.ARTIST,
+            MediaStore.Audio.Albums.NUMBER_OF_SONGS
+        )
+        val out = mutableListOf<Map<String, Any?>>()
+        contentResolver.query(
+            uri, projection, null, null, MediaStore.Audio.Albums.ALBUM + " ASC"
+        )?.use { c ->
+            val iId = c.getColumnIndexOrThrow(MediaStore.Audio.Albums._ID)
+            val iAlbum = c.getColumnIndexOrThrow(MediaStore.Audio.Albums.ALBUM)
+            val iArtist = c.getColumnIndexOrThrow(MediaStore.Audio.Albums.ARTIST)
+            val iCount = c.getColumnIndexOrThrow(MediaStore.Audio.Albums.NUMBER_OF_SONGS)
+            while (c.moveToNext()) {
+                out.add(
+                    mapOf(
+                        "id" to c.getLong(iId),
+                        "album" to c.getString(iAlbum),
+                        "artist" to c.getString(iArtist),
+                        "numOfSongs" to c.getInt(iCount)
+                    )
+                )
+            }
+        }
+        return out
+    }
+
+    private fun queryArtistsList(): List<Map<String, Any?>> {
+        val uri = MediaStore.Audio.Artists.EXTERNAL_CONTENT_URI
+        val projection = arrayOf(
+            MediaStore.Audio.Artists._ID,
+            MediaStore.Audio.Artists.ARTIST,
+            MediaStore.Audio.Artists.NUMBER_OF_TRACKS,
+            MediaStore.Audio.Artists.NUMBER_OF_ALBUMS
+        )
+        val out = mutableListOf<Map<String, Any?>>()
+        contentResolver.query(
+            uri, projection, null, null, MediaStore.Audio.Artists.ARTIST + " ASC"
+        )?.use { c ->
+            val iId = c.getColumnIndexOrThrow(MediaStore.Audio.Artists._ID)
+            val iArtist = c.getColumnIndexOrThrow(MediaStore.Audio.Artists.ARTIST)
+            val iTracks = c.getColumnIndexOrThrow(MediaStore.Audio.Artists.NUMBER_OF_TRACKS)
+            val iAlbums = c.getColumnIndexOrThrow(MediaStore.Audio.Artists.NUMBER_OF_ALBUMS)
+            while (c.moveToNext()) {
+                out.add(
+                    mapOf(
+                        "id" to c.getLong(iId),
+                        "artist" to c.getString(iArtist),
+                        "numberOfTracks" to c.getInt(iTracks),
+                        "numberOfAlbums" to c.getInt(iAlbums)
+                    )
+                )
+            }
+        }
+        return out
+    }
+
+    private fun artworkBytes(id: Long, type: String): ByteArray? {
+        val albumId: Long = when (type) {
+            "ALBUM" -> id
+            "ARTIST" -> return null // MediaStore has no reliable artist art
+            else -> { // AUDIO: resolve the song's album first
+                var found: Long? = null
+                contentResolver.query(
+                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                    arrayOf(MediaStore.Audio.Media.ALBUM_ID),
+                    MediaStore.Audio.Media._ID + " = ?",
+                    arrayOf(id.toString()),
+                    null
+                )?.use { c ->
+                    if (c.moveToFirst()) found = c.getLong(0)
+                }
+                found ?: return null
+            }
+        }
+        val artUri = ContentUris.withAppendedId(
+            Uri.parse("content://media/external/audio/albumart"), albumId
+        )
+        return try {
+            contentResolver.openInputStream(artUri)?.use { it.readBytes() }
+        } catch (e: Exception) {
+            null
         }
     }
 

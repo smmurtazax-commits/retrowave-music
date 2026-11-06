@@ -9,7 +9,6 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  on_audio_query: ^2.9.0
   just_audio: ^0.9.46
   just_audio_background: ^0.0.1-beta.14
   google_fonts: ^6.2.1

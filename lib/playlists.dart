@@ -2,7 +2,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:on_audio_query/on_audio_query.dart';
+import 'media_query.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'settings_store.dart';
