@@ -5,7 +5,6 @@ on:
 
 permissions:
   contents: write
-  workflows: write
 
 jobs:
   extract:
@@ -33,7 +32,7 @@ jobs:
               fi
             done
           fi
-          rm -rf .idea retrowave_music.iml .flutter-plugins-dependencies retrowave-music-project.zip
+          rm -rf .github .idea retrowave_music.iml .flutter-plugins-dependencies retrowave-music-project.zip
           echo "--- root contents ---"
           ls -la
           find . -path ./.git -prune -o -type f -print | wc -l
