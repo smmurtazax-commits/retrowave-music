@@ -7,6 +7,8 @@ import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.audiofx.AudioEffect
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
@@ -17,6 +19,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
 import android.provider.Settings
+import android.util.LruCache
 import android.view.ViewGroup
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -33,6 +36,7 @@ import com.google.android.gms.cast.framework.SessionManagerListener
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.ByteArrayOutputStream
 
 /**
  * RetroWave native side.
@@ -478,13 +482,51 @@ class MainActivity : FlutterFragmentActivity() {
                 found ?: return null
             }
         }
+        artCache.get(albumId)?.let { return it }
         val artUri = ContentUris.withAppendedId(
             Uri.parse("content://media/external/audio/albumart"), albumId
         )
-        return try {
+        val raw = try {
             contentResolver.openInputStream(artUri)?.use { it.readBytes() }
         } catch (e: Exception) {
             null
+        } ?: return null
+        // Album art ships at full camera-photo size; the app never
+        // shows it larger than ~512px, so shrink it once and cache
+        // the small version — scrolling stays smooth and memory low.
+        val scaled = downscaleArt(raw)
+        artCache.put(albumId, scaled)
+        return scaled
+    }
+
+    /** Recently used album art (already downscaled), by album id. */
+    private val artCache = LruCache<Long, ByteArray>(48)
+
+    private fun downscaleArt(bytes: ByteArray, maxPx: Int = 512): ByteArray {
+        return try {
+            val bounds = BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+            }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return bytes
+            if (bounds.outWidth <= maxPx && bounds.outHeight <= maxPx) {
+                return bytes
+            }
+            var sample = 1
+            while (bounds.outWidth / (sample * 2) >= maxPx &&
+                bounds.outHeight / (sample * 2) >= maxPx
+            ) {
+                sample *= 2
+            }
+            val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+            val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+                ?: return bytes
+            val out = ByteArrayOutputStream()
+            bmp.compress(Bitmap.CompressFormat.JPEG, 85, out)
+            bmp.recycle()
+            out.toByteArray()
+        } catch (e: Exception) {
+            bytes
         }
     }
 
