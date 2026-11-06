@@ -63,7 +63,18 @@ class _LibraryScreenState extends State<LibraryScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(msg), duration: const Duration(seconds: 4)),
+        SnackBar(
+          content: Text(msg),
+          // The message carries the phone's own error words now —
+          // it stays until the user closes it, so it can be read
+          // and screenshotted calmly (4 seconds was too short).
+          duration: const Duration(minutes: 1),
+          action: SnackBarAction(
+            label: 'Close',
+            onPressed: () =>
+                ScaffoldMessenger.of(context).hideCurrentSnackBar(),
+          ),
+        ),
       );
       PlayerService.instance.playbackError.value = null;
     });

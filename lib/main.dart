@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:just_audio_background/just_audio_background.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'art_hue.dart';
@@ -36,23 +35,14 @@ Future<void> main() async {
   } catch (_) {
     // A bad saved value must never freeze the launch screen.
   }
-  // Background playback setup runs BEFORE runApp — this ordering is
-  // load-bearing. The first screen touches the player service the
-  // moment it builds, so if setup were still running at that point,
-  // the player would be born before the background service exists —
-  // and a player born too early fails EVERY song load on some phones
-  // (builds #7–#10 on the S24: all loads failed, position/next/seek
-  // dead). The wait is timeout-guarded, so the worst case is a few
-  // extra seconds on the system splash — it can never freeze there.
-  try {
-    await JustAudioBackground.init(
-      androidNotificationChannelId: 'com.murtazarizvi.retrowave.channel.audio',
-      androidNotificationChannelName: 'RetroWave playback',
-      androidNotificationOngoing: true,
-    ).timeout(const Duration(seconds: 6), onTimeout: () {});
-  } catch (_) {
-    // Background support failed to start; in-app playback still works.
-  }
+  // Build #12 note: NO background-audio setup here, on purpose. The
+  // phone's own error report (build #11) proved the background
+  // handler never finished starting on this device, and because
+  // every song load routed through it, nothing could play. The
+  // background plugin is removed for now so in-app playback stands
+  // entirely on its own; lock-screen/notification controls return
+  // as a separate, carefully-tested step once music itself is
+  // proven on the phone.
   runApp(const RetroWaveApp());
   // The remaining playback plumbing starts only AFTER the UI is on
   // screen; each step is guarded so none of it can stall the app.

@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:just_audio_background/just_audio_background.dart';
 import 'media_query.dart';
 
 import 'art_hue.dart';
@@ -49,22 +48,12 @@ class PlayerService {
       } else {
         uri = Uri.file(s.data);
       }
-      // No artUri on purpose (build #11): a media-store artwork
-      // address rides along with every song's load, and a bad one can
-      // poison the load itself on some phones. The app still shows
-      // artwork everywhere in its own UI; only the lock-screen /
-      // notification picture is paused until playback is proven.
-      return AudioSource.uri(
-        uri,
-        tag: MediaItem(
-          id: s.id.toString(),
-          title: s.title,
-          artist: (s.artist == null || s.artist == '<unknown>')
-              ? 'Unknown artist'
-              : s.artist,
-          album: s.album ?? '',
-        ),
-      );
+      // No tag (build #12): the tag existed for the background
+      // plugin's lock-screen display. That plugin is removed — its
+      // handler never finished starting on the user's phone and it
+      // took every song load down with it (build #11's error report
+      // named it). Plain sources keep playback fully self-contained.
+      return AudioSource.uri(uri);
     }).toList();
   }
 
