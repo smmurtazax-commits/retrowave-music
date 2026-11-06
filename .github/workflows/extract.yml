@@ -1,0 +1,51 @@
+name: Extract project archive
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract project files
+        run: |
+          set -e
+          if [ ! -f retrowave-music-project.zip ]; then
+            echo "Archive not found, nothing to do."
+            exit 0
+          fi
+          unzip -o retrowave-music-project.zip
+          if [ ! -f pubspec.yaml ]; then
+            for d in */; do
+              if [ -f "${d}pubspec.yaml" ]; then
+                for item in pubspec.yaml pubspec.lock codemagic.yaml analysis_options.yaml .metadata .gitignore README.md BUILDING.md lib android; do
+                  if [ -e "${d}${item}" ]; then
+                    mv "${d}${item}" ./
+                  fi
+                done
+                rm -rf "${d%/}"
+                break
+              fi
+            done
+          fi
+          rm -rf .idea retrowave_music.iml .flutter-plugins-dependencies retrowave-music-project.zip
+          echo "--- root contents ---"
+          ls -la
+          find . -path ./.git -prune -o -type f -print | wc -l
+      - name: Commit extracted files
+        run: |
+          set -e
+          rm -f .github/workflows/extract.yml
+          git config user.name "smmurtazax-commits"
+          git config user.email "sm.murtazax@gmail.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Nothing to commit."
+          else
+            git commit -m "RetroWave Music — initial project"
+            git push
+          fi
