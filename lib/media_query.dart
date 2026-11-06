@@ -180,6 +180,19 @@ class OnAudioQuery {
         .map(SongModel.fromMap)
         .toList();
   }
+
+  /// Saves a WAV file into the device Music library
+  /// (Music/RetroWave AI) through MediaStore, so it appears in the
+  /// library right away. Returns {id, uri, path} on success.
+  Future<Map<String, dynamic>?> saveAudioFile(
+      String name, Uint8List bytes) async {
+    final res = await _channel.invokeMethod<Map<dynamic, dynamic>>(
+      'saveAudioFile',
+      <String, dynamic>{'name': name, 'bytes': bytes},
+    );
+    if (res == null) return null;
+    return res.map((k, v) => MapEntry<String, dynamic>(k.toString(), v));
+  }
 }
 
 /// Album-art image backed by the media store, with the same constructor
@@ -206,7 +219,9 @@ class QueryArtworkWidget extends StatelessWidget {
   static final Map<String, Future<Uint8List?>> _cache =
       <String, Future<Uint8List?>>{};
 
-  Future<Uint8List?> _load() {
+  /// Raw artwork bytes for (type, id), cached — shared by the widget
+  /// and by features that need the pixels themselves (artwork hue).
+  static Future<Uint8List?> artworkBytes(ArtworkType type, int id) {
     final key = '${type.name}:$id';
     return _cache.putIfAbsent(
       key,
@@ -216,6 +231,8 @@ class QueryArtworkWidget extends StatelessWidget {
       ),
     );
   }
+
+  Future<Uint8List?> _load() => artworkBytes(type, id);
 
   @override
   Widget build(BuildContext context) {

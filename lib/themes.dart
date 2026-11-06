@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'art_hue.dart';
 import 'settings_store.dart';
 
 /// The four retro themes from the RetroWave Figma design.
@@ -159,11 +160,25 @@ RetroPalette lightVariant(RetroPalette d) {
   );
 }
 
-/// The palette the app should use right now.
+/// The palette the app should use right now. While a song is loaded,
+/// its artwork hue (see art_hue.dart) is blended through every color,
+/// so all pages quietly wear the playing album's colors.
 RetroPalette get palette {
   final c = customColor.value;
   final base = c != null ? paletteFor(c) : palettes[themeIndex.value];
-  return effectiveDark.value ? base : lightVariant(base);
+  final themed = effectiveDark.value ? base : lightVariant(base);
+  final hue = artHue.value;
+  if (hue == null) return themed;
+  return RetroPalette(
+    name: themed.name,
+    era: themed.era,
+    bgTop: Color.lerp(themed.bgTop, hue, 0.10)!,
+    bgBottom: Color.lerp(themed.bgBottom, hue, 0.07)!,
+    accent: Color.lerp(themed.accent, hue, 0.45)!,
+    accent2: Color.lerp(themed.accent2, hue, 0.22)!,
+    card: Color.lerp(themed.card, hue, 0.12)!,
+    textDim: themed.textDim,
+  );
 }
 
 /// Index of the Smokey Glass preset in [palettes].

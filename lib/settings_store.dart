@@ -24,6 +24,10 @@ class SettingsStore {
   /// Whether media controls may appear on the lock screen.
   final ValueNotifier<bool> lockScreenControls = ValueNotifier<bool>(true);
 
+  /// Library layout for songs and playlists: false = list rows,
+  /// true = grid (rows and columns of artwork cards).
+  final ValueNotifier<bool> gridView = ValueNotifier<bool>(false);
+
   /// What tapping a song does: 'all' = queue the whole list from that
   /// song, 'single' = play only that song.
   final ValueNotifier<String> queueMode = ValueNotifier<String>('all');
@@ -57,6 +61,7 @@ class SettingsStore {
     crossfadeSeconds.value = prefs.getInt('set.crossfade') ?? 0;
     skipSilence.value = prefs.getBool('set.skipSilence') ?? false;
     lockScreenControls.value = prefs.getBool('set.lockScreen') ?? true;
+    gridView.value = prefs.getBool('set.gridView') ?? false;
     queueMode.value = prefs.getString('set.queueMode') ?? 'all';
     noDuplicates.value = prefs.getBool('set.noDuplicates') ?? true;
     final tabs = prefs.getStringList('set.tabs');
@@ -78,6 +83,7 @@ class SettingsStore {
     await prefs.setInt('set.crossfade', crossfadeSeconds.value);
     await prefs.setBool('set.skipSilence', skipSilence.value);
     await prefs.setBool('set.lockScreen', lockScreenControls.value);
+    await prefs.setBool('set.gridView', gridView.value);
     await prefs.setString('set.queueMode', queueMode.value);
     await prefs.setBool('set.noDuplicates', noDuplicates.value);
     await prefs.setStringList('set.tabs', enabledTabs.value);

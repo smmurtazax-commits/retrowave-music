@@ -5,6 +5,7 @@ import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'media_query.dart';
 
+import 'art_hue.dart';
 import 'settings_store.dart';
 
 /// Single shared player for the whole app.
@@ -178,6 +179,7 @@ class PlayerService {
       }
     });
     player.currentIndexStream.listen((_) {
+      updateArtHue(currentSong);
       if (SettingsStore.instance.crossfadeSeconds.value > 0) {
         player.setVolume(0.0);
       } else {

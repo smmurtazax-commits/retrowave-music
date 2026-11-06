@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'art_hue.dart';
 import 'audiofx.dart';
 import 'fonts.dart';
 import 'library.dart';
@@ -80,6 +81,9 @@ class _RetroWaveAppState extends State<RetroWaveApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // When the playing song's artwork hue changes, repaint the whole
+    // app so every page picks up the blended palette.
+    artHue.addListener(() => appearanceVersion.value++);
   }
 
   @override

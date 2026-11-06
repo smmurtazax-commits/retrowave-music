@@ -350,6 +350,104 @@ Widget _songTile(
 
 typedef PlayCallback = Future<void> Function(List<SongModel>, int);
 
+/// Grid (rows & columns) version of a song list, shown when the
+/// grid-view option is on: big artwork cards instead of rows.
+/// [onRemove], when given, puts a small remove button on each card.
+class SongGrid extends StatelessWidget {
+  final List<SongModel> songs;
+  final void Function(List<SongModel>, int) onPlay;
+  final void Function(SongModel)? onRemove;
+  final IconData removeIcon;
+
+  const SongGrid({
+    super.key,
+    required this.songs,
+    required this.onPlay,
+    this.onRemove,
+    this.removeIcon = Icons.remove_circle_outline,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.builder(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        mainAxisSpacing: 6,
+        crossAxisSpacing: 6,
+        childAspectRatio: 0.80,
+      ),
+      itemCount: songs.length,
+      itemBuilder: (context, i) {
+        final s = songs[i];
+        return InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () => onPlay(songs, i),
+          child: Padding(
+            padding: const EdgeInsets.all(6),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Stack(
+                  children: [
+                    LayoutBuilder(
+                      builder: (context, c) => QueryArtworkWidget(
+                        id: s.id,
+                        type: ArtworkType.AUDIO,
+                        artworkWidth: c.maxWidth,
+                        artworkHeight: c.maxWidth,
+                        artworkBorder: BorderRadius.circular(12),
+                        nullArtworkWidget: Container(
+                          width: c.maxWidth,
+                          height: c.maxWidth,
+                          decoration: BoxDecoration(
+                            color: palette.card,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(Icons.music_note,
+                              color: palette.accent2, size: 40),
+                        ),
+                      ),
+                    ),
+                    if (onRemove != null)
+                      Positioned(
+                        top: 0,
+                        right: 0,
+                        child: IconButton(
+                          icon: Icon(removeIcon,
+                              color: Colors.white,
+                              shadows: const [
+                                Shadow(color: Colors.black87, blurRadius: 5),
+                              ]),
+                          tooltip: 'Remove',
+                          onPressed: () => onRemove!(s),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  s.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w600, fontSize: 14),
+                ),
+                Text(
+                  s.artist ?? 'Unknown artist',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: palette.textDim, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 class PlaylistsTab extends StatelessWidget {
   final PlayCallback onPlay;
   const PlaylistsTab({super.key, required this.onPlay});
@@ -357,7 +455,16 @@ class PlaylistsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final store = PlaylistStore.instance;
-    return ValueListenableBuilder<List<Playlist>>(
+    return ValueListenableBuilder<bool>(
+      valueListenable: SettingsStore.instance.gridView,
+      builder: (context, grid, _) {
+        if (grid) {
+          return ValueListenableBuilder<List<Playlist>>(
+            valueListenable: store.playlists,
+            builder: (context, lists, _) => _playlistsGrid(context, lists),
+          );
+        }
+        return ValueListenableBuilder<List<Playlist>>(
       valueListenable: store.playlists,
       builder: (context, lists, _) => ListView(
         children: [
@@ -393,6 +500,89 @@ class PlaylistsTab extends StatelessWidget {
               ),
             ),
         ],
+      ),
+    );
+      },
+    );
+  }
+
+  Widget _playlistsGrid(BuildContext context, List<Playlist> lists) {
+    final store = PlaylistStore.instance;
+    return GridView.builder(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        mainAxisSpacing: 6,
+        crossAxisSpacing: 6,
+        childAspectRatio: 1.02,
+      ),
+      itemCount: lists.length + 1,
+      itemBuilder: (context, i) {
+        if (i == 0) {
+          return _gridCard(
+            icon: Icons.add_circle,
+            title: 'New playlist',
+            subtitle: 'Tap to create',
+            onTap: () async {
+              final name = await askName(context, title: 'New playlist');
+              if (name != null) store.create(name);
+            },
+          );
+        }
+        final pl = lists[i - 1];
+        return _gridCard(
+          icon: Icons.queue_music,
+          title: pl.name,
+          subtitle: '${pl.songIds.length} songs',
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) =>
+                  PlaylistDetailScreen(playlistId: pl.id, onPlay: onPlay),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _gridCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: palette.card,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(icon, color: palette.accent2, size: 30),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+            ),
+            Text(
+              subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: palette.textDim, fontSize: 12),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -441,20 +631,31 @@ class PlaylistDetailScreen extends StatelessWidget {
                     style: TextStyle(color: palette.textDim),
                   ),
                 )
-              : ListView.builder(
-                  itemCount: songs.length,
-                  itemBuilder: (context, i) {
-                    final s = songs[i];
-                    return _songTile(
-                      s,
-                      trailing: IconButton(
-                        icon: const Icon(Icons.remove_circle_outline),
-                        tooltip: 'Remove from playlist',
-                        onPressed: () => store.removeSong(pl.id, s.id),
-                      ),
-                      onTap: () => onPlay(songs, i),
-                    );
-                  },
+              : ValueListenableBuilder<bool>(
+                  valueListenable: SettingsStore.instance.gridView,
+                  builder: (context, grid, _) => grid
+                      ? SongGrid(
+                          songs: songs,
+                          onPlay: onPlay,
+                          onRemove: (s) => store.removeSong(pl.id, s.id),
+                        )
+                      : ListView.builder(
+                          itemCount: songs.length,
+                          itemBuilder: (context, i) {
+                            final s = songs[i];
+                            return _songTile(
+                              s,
+                              trailing: IconButton(
+                                icon:
+                                    const Icon(Icons.remove_circle_outline),
+                                tooltip: 'Remove from playlist',
+                                onPressed: () =>
+                                    store.removeSong(pl.id, s.id),
+                              ),
+                              onTap: () => onPlay(songs, i),
+                            );
+                          },
+                        ),
                 ),
         );
       },
@@ -486,20 +687,30 @@ class FavouritesTab extends StatelessWidget {
             ),
           );
         }
-        return ListView.builder(
-          itemCount: songs.length,
-          itemBuilder: (context, i) {
-            final s = songs[i];
-            return _songTile(
-              s,
-              trailing: IconButton(
-                icon: Icon(Icons.favorite, color: palette.accent),
-                tooltip: 'Remove from Favourites',
-                onPressed: () => store.toggleFavourite(s.id),
-              ),
-              onTap: () => onPlay(songs, i),
-            );
-          },
+        return ValueListenableBuilder<bool>(
+          valueListenable: SettingsStore.instance.gridView,
+          builder: (context, grid, _) => grid
+              ? SongGrid(
+                  songs: songs,
+                  onPlay: onPlay,
+                  onRemove: (s) => store.toggleFavourite(s.id),
+                  removeIcon: Icons.favorite,
+                )
+              : ListView.builder(
+                  itemCount: songs.length,
+                  itemBuilder: (context, i) {
+                    final s = songs[i];
+                    return _songTile(
+                      s,
+                      trailing: IconButton(
+                        icon: Icon(Icons.favorite, color: palette.accent),
+                        tooltip: 'Remove from Favourites',
+                        onPressed: () => store.toggleFavourite(s.id),
+                      ),
+                      onTap: () => onPlay(songs, i),
+                    );
+                  },
+                ),
         );
       },
     );

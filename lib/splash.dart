@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import 'library.dart';
 import 'themes.dart';
@@ -74,27 +75,16 @@ class _SplashScreenState extends State<SplashScreen>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    _embossedLogo(p),
-                    const SizedBox(height: 26),
-                    _embossedText('RetroWave', p, 40),
-                    const SizedBox(height: 6),
-                    Text(
-                      'M U S I C',
-                      style: TextStyle(
-                        color: p.accent2,
-                        fontSize: 15,
-                        letterSpacing: 6,
-                        fontWeight: FontWeight.w600,
-                        shadows: const [
-                          Shadow(
-                            color: Colors.black54,
-                            offset: Offset(0, 1),
-                            blurRadius: 2,
-                          ),
-                        ],
-                      ),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        _embossedLogo(p),
+                        const SizedBox(width: 20),
+                        _minimalName(p),
+                      ],
                     ),
-                    const SizedBox(height: 34),
+                    const SizedBox(height: 36),
                     SizedBox(
                       width: 120,
                       child: LinearProgressIndicator(
@@ -148,22 +138,38 @@ class _SplashScreenState extends State<SplashScreen>
     );
   }
 
-  /// Embossed lettering: deepened accent fill, a dark shadow dropped
-  /// below and a light highlight above, like the name is pressed
-  /// into the surface.
-  Widget _embossedText(String text, RetroPalette p, double size) {
-    return Text(
-      text,
-      style: TextStyle(
-        fontSize: size,
-        fontWeight: FontWeight.bold,
-        letterSpacing: 1.5,
-        color: Color.alphaBlend(p.accent.withOpacity(0.9), p.bgBottom),
-        shadows: const [
-          Shadow(color: Colors.black54, offset: Offset(0, 2), blurRadius: 3),
-          Shadow(color: Colors.white30, offset: Offset(0, -1), blurRadius: 1),
-        ],
-      ),
+  /// The app name in a minimal style: a light, thin typeface in
+  /// wide-spaced capitals — quiet and clean, no heavy effects.
+  /// Sits beside the logo disc as one horizontal lockup.
+  Widget _minimalName(RetroPalette p) {
+    final family =
+        GoogleFonts.montserrat(fontWeight: FontWeight.w300).fontFamily;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'RETROWAVE',
+          style: TextStyle(
+            fontFamily: family,
+            fontSize: 30,
+            fontWeight: FontWeight.w300,
+            letterSpacing: 10,
+            color: Colors.white.withOpacity(0.94),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          'MUSIC',
+          style: TextStyle(
+            fontFamily: family,
+            fontSize: 13,
+            fontWeight: FontWeight.w300,
+            letterSpacing: 14,
+            color: Colors.white.withOpacity(0.55),
+          ),
+        ),
+      ],
     );
   }
 }

@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.ContentUris
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -15,6 +16,7 @@ import android.media.audiofx.Equalizer
 import android.media.audiofx.Virtualizer
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
@@ -312,6 +314,15 @@ class MainActivity : FlutterFragmentActivity() {
                             val type = call.argument<String>("type") ?: "AUDIO"
                             runMediaQuery(result) { artworkBytes(id, type) }
                         }
+                        "saveAudioFile" -> {
+                            val name = call.argument<String>("name") ?: "RetroWave AI.wav"
+                            val bytes = call.argument<ByteArray>("bytes")
+                            if (bytes == null) {
+                                result.error("MEDIA_ERROR", "No audio bytes", null)
+                            } else {
+                                runMediaQuery(result) { saveAudioFile(name, bytes) }
+                            }
+                        }
                         else -> result.notImplemented()
                     }
                 } catch (e: Exception) {
@@ -347,6 +358,44 @@ class MainActivity : FlutterFragmentActivity() {
             return
         }
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+    }
+
+    /**
+     * Saves a generated WAV into the shared Music library under
+     * "Music/RetroWave AI" via MediaStore, so the song appears in
+     * this app's library (and every other player) right away.
+     * Returns {id, uri, path}.
+     */
+    private fun saveAudioFile(name: String, bytes: ByteArray): Map<String, Any?> {
+        val title = name.substringBeforeLast('.')
+        val values = ContentValues().apply {
+            put(MediaStore.Audio.Media.DISPLAY_NAME, name)
+            put(MediaStore.Audio.Media.TITLE, title)
+            put(MediaStore.Audio.Media.ARTIST, "RetroWave AI Studio")
+            put(MediaStore.Audio.Media.ALBUM, "AI Sessions")
+            put(MediaStore.Audio.Media.MIME_TYPE, "audio/wav")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(MediaStore.Audio.Media.RELATIVE_PATH, "Music/RetroWave AI")
+                put(MediaStore.Audio.Media.IS_PENDING, 1)
+            }
+        }
+        val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+            MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        else MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+        val resolver = contentResolver
+        val uri = resolver.insert(collection, values)
+            ?: throw IllegalStateException("MediaStore insert failed")
+        resolver.openOutputStream(uri)?.use { it.write(bytes) }
+            ?: throw IllegalStateException("Could not open output stream")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val done = ContentValues().apply {
+                put(MediaStore.Audio.Media.IS_PENDING, 0)
+            }
+            resolver.update(uri, done, null, null)
+        }
+        val id = ContentUris.parseId(uri)
+        val path = "${Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)}/RetroWave AI/$name"
+        return mapOf("id" to id, "uri" to uri.toString(), "path" to path)
     }
 
     private fun querySongsList(

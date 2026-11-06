@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'media_query.dart';
 
+import 'ai_studio.dart';
 import 'glass.dart';
 import 'now_playing.dart';
 import 'player.dart';
@@ -239,6 +240,25 @@ class _LibraryScreenState extends State<LibraryScreen> {
               tooltip: 'Rescan library',
               onPressed: _loading ? null : _load,
             ),
+          if (_hasPermission)
+            ValueListenableBuilder<bool>(
+              valueListenable: SettingsStore.instance.gridView,
+              builder: (context, grid, _) => IconButton(
+                icon: Icon(grid ? Icons.view_list : Icons.grid_view),
+                tooltip: grid ? 'List view' : 'Grid view',
+                onPressed: () {
+                  SettingsStore.instance.gridView.value = !grid;
+                  SettingsStore.instance.save();
+                },
+              ),
+            ),
+          IconButton(
+            icon: const Icon(Icons.auto_awesome),
+            tooltip: 'AI Studio — make a song',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const AiStudioScreen()),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.palette_outlined),
             tooltip: 'Appearance',
@@ -421,6 +441,80 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (songs.isEmpty) {
       return const Center(child: Text('No matches'));
     }
+    return ValueListenableBuilder<bool>(
+      valueListenable: SettingsStore.instance.gridView,
+      builder: (context, grid, _) =>
+          grid ? _songsGrid(songs) : _songsListView(songs),
+    );
+  }
+
+  Widget _songsGrid(List<SongModel> songs) {
+    return GridView.builder(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        mainAxisSpacing: 6,
+        crossAxisSpacing: 6,
+        childAspectRatio: 0.80,
+      ),
+      itemCount: songs.length,
+      itemBuilder: (context, i) {
+        final s = songs[i];
+        return InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () => _playFrom(songs, i),
+          onLongPress: () => showSongActions(
+            context,
+            s,
+            onPlay: () => _playFrom(songs, i),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(6),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                LayoutBuilder(
+                  builder: (context, c) => QueryArtworkWidget(
+                    id: s.id,
+                    type: ArtworkType.AUDIO,
+                    artworkWidth: c.maxWidth,
+                    artworkHeight: c.maxWidth,
+                    artworkBorder: BorderRadius.circular(12),
+                    nullArtworkWidget: Container(
+                      width: c.maxWidth,
+                      height: c.maxWidth,
+                      decoration: BoxDecoration(
+                        color: palette.card,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(Icons.music_note,
+                          color: palette.accent2, size: 40),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  s.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w600, fontSize: 14),
+                ),
+                Text(
+                  s.artist ?? 'Unknown artist',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: palette.textDim, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _songsListView(List<SongModel> songs) {
     return ListView.builder(
       itemCount: songs.length,
       itemBuilder: (context, i) {

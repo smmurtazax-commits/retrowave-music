@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'audiofx.dart';
+import 'feedback.dart';
 import 'glass.dart';
 import 'player.dart';
 import 'playlists.dart';
@@ -91,6 +92,15 @@ class SettingsScreen extends StatelessWidget {
               trailing: const Icon(Icons.chevron_right),
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const AboutScreen()),
+              ),
+            ),
+            ListTile(
+              title: const Text('Send feedback'),
+              subtitle:
+                  const Text('Star rating and a note — arrives by email'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const FeedbackScreen()),
               ),
             ),
             ListTile(
