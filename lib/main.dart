@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -13,27 +15,46 @@ import 'themes.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Restore saved appearance choices (theme, custom color, font).
-  final prefs = await SharedPreferences.getInstance();
-  themeIndex.value = prefs.getInt('theme') ?? 0;
-  fontIndex.value = prefs.getInt('font') ?? 0;
-  final savedColor = prefs.getInt('customColor');
-  if (savedColor != null) {
-    customColor.value = Color(savedColor);
+  // Restore saved appearance choices (theme, custom color, font) and
+  // the local stores. These are local reads, but they are guarded
+  // anyway: nothing before runApp may ever keep the app from opening.
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    themeIndex.value = prefs.getInt('theme') ?? 0;
+    fontIndex.value = prefs.getInt('font') ?? 0;
+    final savedColor = prefs.getInt('customColor');
+    if (savedColor != null) {
+      customColor.value = Color(savedColor);
+    }
+    // Settings, playlists, and the playback preferences they drive.
+    await SettingsStore.instance.load(prefs);
+    await PlaylistStore.instance.load(prefs);
+    recomputeEffectiveDark();
+    PlayerService.instance.applyStoredSettings();
+  } catch (_) {
+    // A bad saved value must never freeze the launch screen.
   }
-  // Settings, playlists, and the playback preferences they drive.
-  await SettingsStore.instance.load(prefs);
-  await PlaylistStore.instance.load(prefs);
-  recomputeEffectiveDark();
-  PlayerService.instance.applyStoredSettings();
-  await AudioFx.setLockScreenControls(
-      SettingsStore.instance.lockScreenControls.value);
-  await JustAudioBackground.init(
-    androidNotificationChannelId: 'com.murtazarizvi.retrowave.channel.audio',
-    androidNotificationChannelName: 'RetroWave playback',
-    androidNotificationOngoing: true,
-  );
   runApp(const RetroWaveApp());
+  // Playback plumbing starts only AFTER the UI is on screen. The
+  // background-audio handshake can stall on some phones; it must
+  // never hold the opening screen hostage, so each step has a
+  // timeout and failures are swallowed — playback itself still works.
+  unawaited(_initPlayback());
+}
+
+Future<void> _initPlayback() async {
+  try {
+    await AudioFx.setLockScreenControls(
+            SettingsStore.instance.lockScreenControls.value)
+        .timeout(const Duration(seconds: 3), onTimeout: () {});
+  } catch (_) {}
+  try {
+    await JustAudioBackground.init(
+      androidNotificationChannelId: 'com.murtazarizvi.retrowave.channel.audio',
+      androidNotificationChannelName: 'RetroWave playback',
+      androidNotificationOngoing: true,
+    ).timeout(const Duration(seconds: 10), onTimeout: () {});
+  } catch (_) {}
 }
 
 class RetroWaveApp extends StatefulWidget {
