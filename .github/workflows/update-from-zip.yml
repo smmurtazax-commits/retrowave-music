@@ -1,0 +1,31 @@
+name: Update project from zip
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract zip and sync into repo
+        run: |
+          mkdir -p /tmp/extracted
+          unzip -o retrowave-music-project.zip -d /tmp/extracted
+          rsync -a --delete --exclude='.git' --exclude='.github' /tmp/extracted/ ./
+          rm -f retrowave-music-project.zip
+      - name: Commit updated project files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Update project from retrowave-music-project.zip (build #13 scratch engine)" || echo "nothing to commit"
+          git push || true
+      - name: Delete this workflow
+        run: |
+          git rm .github/workflows/update-from-zip.yml
+          git commit -m "Remove temporary update-from-zip workflow"
+          git push
