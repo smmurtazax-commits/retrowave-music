@@ -77,6 +77,16 @@ class PlayerService {
     lastPlayerError = null;
     Object? loadError;
 
+    // Clean slate for every new tap: pitch back to neutral and the
+    // speed to the stored setting, so nothing strange (a DJ-disc
+    // pitch bend, a leftover speed) can leak into the next song.
+    try {
+      await player.setPitch(1.0);
+    } catch (_) {}
+    try {
+      await player.setSpeed(SettingsStore.instance.playSpeed.value);
+    } catch (_) {}
+
     // Load ladder — each rung removes one suspect, and every refusal
     // is kept so the final message can quote the phone's own words:
     //   1. the whole queue via media-store addresses

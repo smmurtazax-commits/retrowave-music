@@ -250,12 +250,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.album, color: p.accent, size: 28),
+                  Icon(Icons.album, color: p.accent, size: 26),
                   const SizedBox(width: 8),
                   const Text(
                     'RetroWave',
                     style:
-                        TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                        TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                 ],
               ),
@@ -264,6 +264,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
           const Spacer(),
           if (_hasPermission)
             IconButton(
+              visualDensity: VisualDensity.compact,
+              constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
+              padding: EdgeInsets.zero,
+              iconSize: 22,
               icon: const Icon(Icons.refresh),
               tooltip: 'Rescan library',
               onPressed: _loading ? null : _load,
@@ -272,6 +276,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
             ValueListenableBuilder<bool>(
               valueListenable: SettingsStore.instance.gridView,
               builder: (context, grid, _) => IconButton(
+                visualDensity: VisualDensity.compact,
+                constraints:
+                    const BoxConstraints(minWidth: 38, minHeight: 38),
+                padding: EdgeInsets.zero,
+                iconSize: 22,
                 icon: Icon(grid ? Icons.view_list : Icons.grid_view),
                 tooltip: grid ? 'List view' : 'Grid view',
                 onPressed: () {
@@ -281,6 +290,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
               ),
             ),
           IconButton(
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
+            padding: EdgeInsets.zero,
+            iconSize: 22,
             icon: const Icon(Icons.auto_awesome),
             tooltip: 'AI Studio — make a song',
             onPressed: () => Navigator.of(context).push(
@@ -288,6 +301,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
             ),
           ),
           IconButton(
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
+            padding: EdgeInsets.zero,
+            iconSize: 22,
             icon: const Icon(Icons.palette_outlined),
             tooltip: 'Appearance',
             onPressed: () => Navigator.of(context).push(
@@ -295,6 +312,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
             ),
           ),
           IconButton(
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
+            padding: EdgeInsets.zero,
+            iconSize: 22,
             icon: const Icon(Icons.settings_outlined),
             tooltip: 'Settings',
             onPressed: () => Navigator.of(context).push(

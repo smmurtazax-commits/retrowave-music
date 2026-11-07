@@ -63,6 +63,10 @@ class MainActivity : FlutterFragmentActivity() {
     private val fxChannelName = "retrowave/audiofx"
     private val castChannelName = "retrowave/cast"
     private val mediaChannelName = "retrowave/media"
+    private val scratchChannelName = "retrowave/scratch"
+
+    // --- scratch (DJ Disc real-time engine) ---
+    private var scratchEngine: ScratchEngine? = null
     private val playbackChannelId = "com.murtazarizvi.retrowave.channel.audio"
 
     // --- audiofx ---
@@ -81,6 +85,53 @@ class MainActivity : FlutterFragmentActivity() {
         setupFxChannel(flutterEngine)
         setupCastChannel(flutterEngine)
         setupMediaChannel(flutterEngine)
+        setupScratchChannel(flutterEngine)
+    }
+
+    // ------------------------------------------------------------------
+    // Scratch channel (DJ Disc real-time engine)
+    // ------------------------------------------------------------------
+
+    private fun scratch(): ScratchEngine =
+        scratchEngine ?: ScratchEngine(applicationContext).also {
+            scratchEngine = it
+        }
+
+    private fun setupScratchChannel(flutterEngine: FlutterEngine) {
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, scratchChannelName)
+            .setMethodCallHandler { call, result ->
+                try {
+                    when (call.method) {
+                        // Decoding a whole song takes a moment — it
+                        // runs on a background thread via runMediaQuery.
+                        "prepare" -> runMediaQuery(result) {
+                            scratch().prepare(
+                                call.argument<String>("path"),
+                                call.argument<String>("uri")
+                            )
+                        }
+                        "start" -> {
+                            val ms = call.argument<Number>("startMs")?.toLong() ?: 0L
+                            result.success(scratch().start(ms))
+                        }
+                        "stop" -> result.success(scratch().stop())
+                        "setRatio" -> {
+                            val r = call.argument<Double>("ratio") ?: 1.0
+                            scratch().setRatio(r)
+                            result.success(true)
+                        }
+                        "playhead" -> result.success(scratch().playheadMs())
+                        "duration" -> result.success(scratch().durationMs)
+                        "release" -> {
+                            scratch().releaseAll()
+                            result.success(true)
+                        }
+                        else -> result.notImplemented()
+                    }
+                } catch (e: Exception) {
+                    result.error("SCRATCH_ERROR", e.message, null)
+                }
+            }
     }
 
     // ------------------------------------------------------------------
@@ -678,6 +729,11 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun onDestroy() {
         releaseEffects()
+        try {
+            scratchEngine?.releaseAll()
+        } catch (e: Exception) {
+            // ignore
+        }
         try {
             sessionListener?.let {
                 castContext?.sessionManager?.removeSessionManagerListener(

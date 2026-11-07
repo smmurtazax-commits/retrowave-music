@@ -6,7 +6,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'art_hue.dart';
 import 'audiofx.dart';
 import 'fonts.dart';
-import 'library.dart';
 import 'splash.dart';
 import 'player.dart';
 import 'playlists.dart';
