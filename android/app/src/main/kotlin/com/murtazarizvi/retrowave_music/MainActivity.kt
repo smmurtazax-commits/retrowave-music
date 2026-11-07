@@ -35,7 +35,7 @@ import com.google.android.gms.cast.MediaStatus
 import com.google.android.gms.cast.framework.CastContext
 import com.google.android.gms.cast.framework.Session
 import com.google.android.gms.cast.framework.SessionManagerListener
-import io.flutter.embedding.android.FlutterFragmentActivity
+import com.ryanheise.audioservice.AudioServiceFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayOutputStream
@@ -58,7 +58,15 @@ import java.io.ByteArrayOutputStream
  * and album artwork. This replaces the unmaintained on_audio_query
  * plugin, whose Android module cannot build on current AGP versions.
  */
-class MainActivity : FlutterFragmentActivity() {
+// AudioServiceFragmentActivity, NOT plain FlutterFragmentActivity:
+// the background-audio handler (just_audio_background) only starts
+// when the host activity is the audio service's own class. With the
+// plain class its setup throws "The Activity class declared in your
+// AndroidManifest.xml is wrong..." and every song load then dies on
+// an uninitialized handler — the root cause of the total-silence
+// bug that ran through builds #5–#14. It extends
+// FlutterFragmentActivity itself, so everything else is unchanged.
+class MainActivity : AudioServiceFragmentActivity() {
 
     private val fxChannelName = "retrowave/audiofx"
     private val castChannelName = "retrowave/cast"
