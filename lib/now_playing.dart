@@ -572,25 +572,45 @@ class NowPlayingScreen extends StatelessWidget {
   }
 
   Widget _artwork(SongModel song, RetroPalette p, double size) {
-    return QueryArtworkWidget(
-      id: song.id,
-      type: ArtworkType.AUDIO,
-      artworkWidth: size,
-      artworkHeight: size,
-      artworkBorder: BorderRadius.circular(20),
-      nullArtworkWidget: Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          gradient: LinearGradient(
-            colors: [p.accent, p.accent2],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+    final svc = PlayerService.instance;
+    // Two soft touches: the artwork CROSSFADES when the song
+    // changes (no hard cut), and a horizontal swipe ON the artwork
+    // changes the song — left for next, right for previous.
+    return GestureDetector(
+      onHorizontalDragEnd: (d) {
+        final v = d.primaryVelocity ?? 0;
+        if (v < -350) {
+          svc.player.seekToNext();
+        } else if (v > 350) {
+          svc.player.seekToPrevious();
+        }
+      },
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 350),
+        switchInCurve: Curves.easeOut,
+        switchOutCurve: Curves.easeIn,
+        child: QueryArtworkWidget(
+          key: ValueKey<int>(song.id),
+          id: song.id,
+          type: ArtworkType.AUDIO,
+          artworkWidth: size,
+          artworkHeight: size,
+          artworkBorder: BorderRadius.circular(20),
+          nullArtworkWidget: Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              gradient: LinearGradient(
+                colors: [p.accent, p.accent2],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+            child: Icon(Icons.music_note,
+                size: size * 0.4, color: Colors.white70),
           ),
         ),
-        child: Icon(Icons.music_note,
-            size: size * 0.4, color: Colors.white70),
       ),
     );
   }
@@ -928,16 +948,41 @@ class _WavyProgressBarState extends State<WavyProgressBar>
   @override
   void dispose() {
     _sub?.cancel();
+    _dragHold?.cancel();
     _wave.dispose();
     super.dispose();
   }
 
-  void _seekTo(double dx, double width) {
-    final totalMs = widget.total.inMilliseconds;
-    if (totalMs <= 0 || width <= 0) return;
-    final frac = (dx / width).clamp(0.0, 1.0);
-    widget.svc.player
-        .seek(Duration(milliseconds: (frac * totalMs).round()));
+  /// While the finger is down, the bar renders from this local
+  /// fraction — not from the player's position stream. The old code
+  /// seeked the player on EVERY drag-move event (dozens per scrub):
+  /// the player thrashed and the knob fought the finger, snapping
+  /// back until each seek landed. Now a drag moves only the
+  /// picture, and the player is seeked once, on release.
+  double? _dragFrac;
+  Timer? _dragHold;
+
+  double _fracFor(double dx, double width) =>
+      width <= 0 ? 0.0 : (dx / width).clamp(0.0, 1.0);
+
+  void _dragTo(double dx, double width) {
+    _dragHold?.cancel();
+    setState(() => _dragFrac = _fracFor(dx, width));
+  }
+
+  void _dragEnd() {
+    final frac = _dragFrac;
+    if (frac != null && widget.total.inMilliseconds > 0) {
+      widget.svc.player.seek(
+        Duration(milliseconds: (frac * widget.total.inMilliseconds).round()),
+      );
+    }
+    // Keep showing the dropped position briefly so the bar does not
+    // snap back while the player's position stream catches up.
+    _dragHold?.cancel();
+    _dragHold = Timer(const Duration(milliseconds: 450), () {
+      if (mounted) setState(() => _dragFrac = null);
+    });
   }
 
   @override
@@ -950,14 +995,20 @@ class _WavyProgressBarState extends State<WavyProgressBar>
           builder: (context, snap) {
             final pos = snap.data ?? Duration.zero;
             final totalMs = widget.total.inMilliseconds;
-            final frac = totalMs <= 0
+            final streamFrac = totalMs <= 0
                 ? 0.0
                 : (pos.inMilliseconds / totalMs).clamp(0.0, 1.0);
+            final frac = _dragFrac ?? streamFrac;
             return GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTapDown: (d) => _seekTo(d.localPosition.dx, width),
+              onTapDown: (d) => _dragTo(d.localPosition.dx, width),
+              onTapUp: (_) => _dragEnd(),
+              onTapCancel: _dragEnd,
+              onHorizontalDragStart: (d) =>
+                  _dragTo(d.localPosition.dx, width),
               onHorizontalDragUpdate: (d) =>
-                  _seekTo(d.localPosition.dx, width),
+                  _dragTo(d.localPosition.dx, width),
+              onHorizontalDragEnd: (_) => _dragEnd(),
               child: AnimatedBuilder(
                 animation: _wave,
                 builder: (context, _) => CustomPaint(

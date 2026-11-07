@@ -54,6 +54,17 @@ class CastService {
       await _ch.invokeMethod('stopCasting');
     } catch (_) {}
     connected.value = false;
+    _shutdownServer();
+  }
+
+  /// The file server exists only to feed a live Cast session. When
+  /// casting ends it must die with the session — otherwise the last
+  /// cast queue would stay downloadable by anyone on the same WiFi
+  /// until the app process is killed.
+  void _shutdownServer() {
+    _server?.close(force: true);
+    _server = null;
+    _paths = <int, String>{};
   }
 
   Future<dynamic> _onNativeCall(MethodCall call) async {
@@ -65,6 +76,7 @@ class CastService {
         break;
       case 'sessionEnded':
         connected.value = false;
+        _shutdownServer();
         break;
     }
     return null;
@@ -116,12 +128,30 @@ class CastService {
             final range = req.headers.value(HttpHeaders.rangeHeader);
             if (range != null && range.startsWith('bytes=')) {
               final parts = range.substring(6).split('-');
-              final start = int.tryParse(parts.isNotEmpty ? parts[0] : '') ?? 0;
+              var start = int.tryParse(parts.isNotEmpty ? parts[0] : '') ?? -1;
               var end = len - 1;
-              if (parts.length > 1 && parts[1].isNotEmpty) {
+              if (start < 0) {
+                // Suffix range "bytes=-500": the LAST 500 bytes,
+                // not the first 500.
+                final suffix =
+                    parts.length > 1 ? int.tryParse(parts[1]) ?? 0 : 0;
+                start = suffix >= len ? 0 : len - suffix;
+                end = len - 1;
+              } else if (parts.length > 1 && parts[1].isNotEmpty) {
                 end = int.tryParse(parts[1]) ?? end;
               }
+              if (start >= len) {
+                // Asking past the end of the file: say so properly
+                // (416) instead of crashing into a 500.
+                req.response.statusCode =
+                    HttpStatus.requestedRangeNotSatisfiable;
+                req.response.headers.set('Content-Range', 'bytes */$len');
+                req.response.contentLength = 0;
+                await req.response.close();
+                return;
+              }
               if (end >= len) end = len - 1;
+              if (end < start) end = start;
               req.response.statusCode = HttpStatus.partialContent;
               req.response.headers
                   .set('Content-Range', 'bytes $start-$end/$len');
@@ -177,7 +207,12 @@ class CastService {
       case 'wav':
         return 'audio/wav';
       case 'ogg':
+      case 'oga':
         return 'audio/ogg';
+      case 'opus':
+        // The library holds .opus voice notes; serving them as
+        // audio/mpeg makes a Cast receiver refuse them outright.
+        return 'audio/opus';
       default:
         return 'audio/mpeg';
     }

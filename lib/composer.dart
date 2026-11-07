@@ -221,7 +221,10 @@ void _addNoise(
 
 /// Renders a complete song to WAV bytes. Top-level so it can run in
 /// an isolate through Flutter's compute().
-Uint8List renderSongWav(ComposerParams params) {
+/// Renders the song; returns the WAV bytes AND the true duration
+/// (whole bars rarely equal the requested seconds exactly, and the
+/// player must show the real length, not the request).
+({Uint8List bytes, int durationMs}) renderSongWav(ComposerParams params) {
   const sr = 22050;
   final st = _styles[params.style.clamp(0, _styles.length - 1)];
   final rng = math.Random(params.seed);
@@ -237,8 +240,13 @@ Uint8List renderSongWav(ComposerParams params) {
   final barSamples = (barDur * sr).round();
   var bars = (params.seconds / barDur).round();
   if (bars < 8) bars = 8;
-  if (bars > 40) bars = 40;
-  final total = bars * barSamples + sr ~/ 2; // small tail for the delay
+  // The old 40-bar ceiling silently shortened high-tempo picks
+  // (90 s at 130 BPM needs ~49 bars and came out ≈74 s).
+  if (bars > 120) bars = 120;
+  // Tail for the echo: at least half a second AND at least two
+  // beats, so the final notes' echo is never cut off.
+  final tail = math.max(sr ~/ 2, (beat * 2 * sr).round());
+  final total = bars * barSamples + tail;
 
   final mixL = Float32List(total);
   final mixR = Float32List(total);
@@ -421,5 +429,8 @@ Uint8List renderSongWav(ComposerParams params) {
     data.setInt16(off + 2, (r * 32767).round(), Endian.little);
     off += 4;
   }
-  return data.buffer.asUint8List();
+  return (
+    bytes: data.buffer.asUint8List(),
+    durationMs: (total / sr * 1000).round(),
+  );
 }

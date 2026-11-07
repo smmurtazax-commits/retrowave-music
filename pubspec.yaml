@@ -9,7 +9,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  just_audio: ^0.9.46
+  just_audio: ^0.10.5
+  just_audio_background: ^0.0.1-beta.17
   google_fonts: ^6.2.1
   palette_generator: ^0.3.3
   url_launcher: ^6.3.0

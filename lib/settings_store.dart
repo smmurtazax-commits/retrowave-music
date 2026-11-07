@@ -56,7 +56,9 @@ class SettingsStore {
   final ValueNotifier<bool> externalStart = ValueNotifier<bool>(true);
 
   Future<void> load(SharedPreferences prefs) async {
-    sleepMinutes.value = prefs.getInt('set.sleepMinutes') ?? 0;
+    // Sleep timer is deliberately NOT restored: the Timer itself
+    // cannot survive a restart, so remembering the value made
+    // Settings claim a timer was set when none existed.
     playSpeed.value = prefs.getDouble('set.playSpeed') ?? 1.0;
     crossfadeSeconds.value = prefs.getInt('set.crossfade') ?? 0;
     skipSilence.value = prefs.getBool('set.skipSilence') ?? false;
@@ -78,7 +80,7 @@ class SettingsStore {
   /// Persists every setting at once (cheap; called on any change).
   Future<void> save() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('set.sleepMinutes', sleepMinutes.value);
+    // (sleepMinutes intentionally not persisted — see load.)
     await prefs.setDouble('set.playSpeed', playSpeed.value);
     await prefs.setInt('set.crossfade', crossfadeSeconds.value);
     await prefs.setBool('set.skipSilence', skipSilence.value);

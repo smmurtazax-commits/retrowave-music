@@ -33,7 +33,12 @@ class Playlist {
   factory Playlist.fromJson(Map<String, dynamic> j) => Playlist(
         id: j['id'] as String,
         name: j['name'] as String,
-        songIds: List<int>.from(j['songIds'] as List),
+        // Tolerant: one odd value (a double from another format)
+        // must not throw and cost every other playlist.
+        songIds: (j['songIds'] as List)
+            .map((e) => e is num ? e.toInt() : int.tryParse('$e'))
+            .whereType<int>()
+            .toList(),
       );
 }
 
@@ -64,9 +69,17 @@ class PlaylistStore {
     if (raw != null) {
       try {
         final list = jsonDecode(raw) as List;
-        playlists.value = list
-            .map((e) => Playlist.fromJson(e as Map<String, dynamic>))
-            .toList();
+        // Decode entry by entry: one malformed record used to fail
+        // the whole list and make every playlist look deleted.
+        final decoded = <Playlist>[];
+        for (final e in list) {
+          try {
+            decoded.add(Playlist.fromJson(e as Map<String, dynamic>));
+          } catch (_) {
+            // Skip only the bad record.
+          }
+        }
+        playlists.value = decoded;
       } catch (_) {
         // Corrupt storage should never block the app.
       }
@@ -159,9 +172,9 @@ Future<String?> askName(
   BuildContext context, {
   required String title,
   String initial = '',
-}) {
+}) async {
   final controller = TextEditingController(text: initial);
-  return showDialog<String>(
+  final result = await showDialog<String>(
     context: context,
     builder: (context) => AlertDialog(
       title: Text(title),
@@ -185,6 +198,10 @@ Future<String?> askName(
       ],
     ),
   );
+  // The dialog is gone; its text controller goes with it (it used to
+  // leak one per dialog).
+  WidgetsBinding.instance.addPostFrameCallback((_) => controller.dispose());
+  return result;
 }
 
 /// The ⋮ actions for a song: play, add to playlist, favourite.
@@ -375,7 +392,7 @@ class SongGrid extends StatelessWidget {
         crossAxisCount: 2,
         mainAxisSpacing: 6,
         crossAxisSpacing: 6,
-        childAspectRatio: 0.80,
+        childAspectRatio: 0.74,
       ),
       itemCount: songs.length,
       itemBuilder: (context, i) {
@@ -428,7 +445,7 @@ class SongGrid extends StatelessWidget {
                 const SizedBox(height: 8),
                 Text(
                   s.title,
-                  maxLines: 2,
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                       fontWeight: FontWeight.w600, fontSize: 14),

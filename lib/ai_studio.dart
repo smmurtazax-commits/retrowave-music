@@ -40,6 +40,8 @@ class _AiStudioScreenState extends State<AiStudioScreen> {
   bool _working = false;
   String _status = '';
   SongModel? _song;
+  int _songStyle = 0;
+  int _songTempo = 0;
   String? _error;
 
   String _titleFor(int seed) {
@@ -64,15 +66,18 @@ class _AiStudioScreenState extends State<AiStudioScreen> {
     });
     try {
       final seed = math.Random().nextInt(1 << 30);
-      final bytes = await compute(
+      final genStyle = _style;
+      final genTempo = _tempo.round();
+      final rendered = await compute(
         renderSongWav,
         ComposerParams(
-          style: _style,
-          tempo: _tempo.round(),
+          style: genStyle,
+          tempo: genTempo,
           seconds: _seconds,
           seed: seed,
         ),
       );
+      final bytes = rendered.bytes;
       if (!mounted) return;
       setState(() => _status = 'Saving it to your library…');
       final title = _titleFor(seed);
@@ -88,6 +93,11 @@ class _AiStudioScreenState extends State<AiStudioScreen> {
       }
       setState(() {
         _working = false;
+        // Snapshot the controls as they were AT generation — the
+        // result card describes this song, not whatever the user
+        // taps next; and the duration is the renderer's real one.
+        _songStyle = genStyle;
+        _songTempo = genTempo;
         _song = SongModel(
           id: (saved['id'] as num).toInt(),
           data: saved['path'] as String? ?? '',
@@ -95,7 +105,7 @@ class _AiStudioScreenState extends State<AiStudioScreen> {
           title: title,
           artist: 'RetroWave AI Studio',
           album: 'AI Sessions',
-          duration: _seconds * 1000,
+          duration: rendered.durationMs,
           fileExtension: 'WAV',
         );
       });
@@ -114,7 +124,7 @@ class _AiStudioScreenState extends State<AiStudioScreen> {
     await PlayerService.instance.playQueue(<SongModel>[song], 0);
     if (!mounted) return;
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const NowPlayingScreen()),
+      fadeRoute((_) => const NowPlayingScreen()),
     );
   }
 
@@ -270,7 +280,7 @@ class _AiStudioScreenState extends State<AiStudioScreen> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '${_styleNames[_style]} • ${_tempo.round()} BPM • '
+                        '${_styleNames[_songStyle]} • $_songTempo BPM • '
                         'saved in your library, album "AI Sessions"',
                         style: TextStyle(color: p.textDim, fontSize: 13),
                       ),

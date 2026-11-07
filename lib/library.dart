@@ -6,6 +6,8 @@ import 'package:just_audio/just_audio.dart';
 import 'media_query.dart';
 
 import 'ai_studio.dart';
+import 'audiofx.dart';
+import 'bg.dart';
 import 'dj_disc.dart';
 import 'glass.dart';
 import 'now_playing.dart';
@@ -31,28 +33,63 @@ class LibraryScreen extends StatefulWidget {
   State<LibraryScreen> createState() => _LibraryScreenState();
 }
 
-class _LibraryScreenState extends State<LibraryScreen> {
+class _LibraryScreenState extends State<LibraryScreen>
+    with WidgetsBindingObserver {
   final OnAudioQuery _audioQuery = OnAudioQuery();
   bool _checking = true;
   bool _hasPermission = false;
+  bool _deniedOnce = false;
   bool _loading = false;
   List<SongModel> _songs = <SongModel>[];
   List<AlbumModel> _albums = <AlbumModel>[];
   List<ArtistModel> _artists = <ArtistModel>[];
-  int _tab = 0; // 0 Songs, 1 Albums, 2 Folders
+  // Selected tab stored by ID, not position: reordering or
+  // removing tabs in Settings used to silently move the selection
+  // to a different tab.
+  String _tabId = 'songs';
   String _query = '';
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     PlayerService.instance.playbackError.addListener(_showPlaybackError);
     _init();
+    // If the background player could not start on this phone, say
+    // so ONCE, plainly — never another silent failure. Music still
+    // plays in the app either way; Settings carries the same note.
+    if (!bgReady) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Background player did not start on this phone '
+              '(${bgError ?? 'unknown reason'}). Music still plays '
+              'in the app.',
+            ),
+            duration: const Duration(seconds: 8),
+          ),
+        );
+      });
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     PlayerService.instance.playbackError.removeListener(_showPlaybackError);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Returning from the system Settings app (where the user may
+    // have just granted the permission) re-checks access, so the
+    // "Open settings" path below is never a dead end either.
+    if (state == AppLifecycleState.resumed && !_hasPermission) {
+      _init();
+    }
   }
 
   /// Playback problems used to fail silently (song stuck at 0:00).
@@ -93,7 +130,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Future<void> _requestPermission() async {
     final ok = await _audioQuery.permissionsRequest();
     if (!mounted) return;
-    setState(() => _hasPermission = ok);
+    setState(() {
+      _hasPermission = ok;
+      if (!ok) _deniedOnce = true;
+    });
     if (ok) await _load();
   }
 
@@ -164,10 +204,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
       if (start < 0) start = 0;
       effective = deduped;
     }
-    await PlayerService.instance.playQueue(effective, start);
+    final gen =
+        await PlayerService.instance.playQueue(effective, start);
     if (!mounted) return;
+    // A faster second tap superseded this one: its own push is the
+    // one that should happen — pushing here too would stack a
+    // second Now Playing screen behind it.
+    if (gen != PlayerService.instance.currentPlayGen) return;
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const NowPlayingScreen()),
+      fadeRoute((_) => const NowPlayingScreen()),
     );
   }
 
@@ -196,7 +241,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   Expanded(
                     child: ValueListenableBuilder<List<String>>(
                       valueListenable: SettingsStore.instance.enabledTabs,
-                      builder: (context, _, __) => _body(p),
+                      // Tab content melts between tabs instead of
+                      // cutting — part of the soft-fade pass.
+                      builder: (context, _, __) => AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 220),
+                        child: KeyedSubtree(
+                          key: ValueKey<String>(
+                              '$_tabId|$_hasPermission|$_checking|$_loading'),
+                          child: _body(p),
+                        ),
+                      ),
                     ),
                   ),
                       const MiniPlayer(),
@@ -384,7 +438,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   Widget _chips(RetroPalette p) {
     final tabs = SettingsStore.instance.enabledTabs.value;
-    final current = _tab.clamp(0, tabs.length - 1);
+    final current =
+        tabs.contains(_tabId) ? tabs.indexOf(_tabId) : 0;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
       child: SingleChildScrollView(
@@ -395,7 +450,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
               ChoiceChip(
                 label: Text(tabLabels[tabs[i]] ?? tabs[i]),
                 selected: current == i,
-                onSelected: (_) => setState(() => _tab = i),
+                onSelected: (_) => setState(() => _tabId = tabs[i]),
                 selectedColor: p.accent.withOpacity(0.35),
               ),
               const SizedBox(width: 8),
@@ -426,7 +481,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       );
     }
     final tabs = SettingsStore.instance.enabledTabs.value;
-    final id = tabs[_tab.clamp(0, tabs.length - 1)];
+    final id = tabs.contains(_tabId) ? _tabId : tabs.first;
     switch (id) {
       case 'albums':
         return _albumsList(p);
@@ -480,6 +535,23 @@ class _LibraryScreenState extends State<LibraryScreen> {
               style: FilledButton.styleFrom(backgroundColor: p.accent),
               child: const Text('Allow access & scan'),
             ),
+            // After a denial with "don't ask again", Android refuses
+            // every further in-app request instantly — the screen
+            // used to dead-end there. App Settings is the way in,
+            // and returning from it re-checks automatically.
+            if (_deniedOnce) ...[
+              const SizedBox(height: 12),
+              Text(
+                'If Android no longer shows the permission prompt, allow Music access from app settings instead.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: p.textDim, fontSize: 13),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton(
+                onPressed: () => AudioFx.openAppSettings(),
+                child: const Text('Open settings to allow'),
+              ),
+            ],
           ],
         ),
       ),
@@ -504,7 +576,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
         crossAxisCount: 2,
         mainAxisSpacing: 6,
         crossAxisSpacing: 6,
-        childAspectRatio: 0.80,
+        // Slightly taller cells: two-line titles used to overflow
+        // the card and clip the artist line.
+        childAspectRatio: 0.74,
       ),
       itemCount: songs.length,
       itemBuilder: (context, i) {
@@ -544,7 +618,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 const SizedBox(height: 8),
                 Text(
                   s.title,
-                  maxLines: 2,
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                       fontWeight: FontWeight.w600, fontSize: 14),
@@ -622,7 +696,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
               AudiosFromType.ALBUM_ID,
               a.id,
             );
-            if (!mounted || songs.isEmpty) return;
+            if (!mounted) return;
+            if (songs.isEmpty) {
+              // Say so — a silent no-op looks like a broken app.
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                    content: Text('No playable songs found in this album')),
+              );
+              return;
+            }
             Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => SongListScreen(
@@ -666,7 +748,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
               AudiosFromType.ARTIST_ID,
               a.id,
             );
-            if (!mounted || songs.isEmpty) return;
+            if (!mounted) return;
+            if (songs.isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                    content: Text('No playable songs found for this artist')),
+              );
+              return;
+            }
             Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => SongListScreen(
@@ -798,13 +887,17 @@ class MiniPlayer extends StatelessWidget {
         return Material(
           color: p.card.withOpacity(0.92),
           child: ListTile(
-            leading: QueryArtworkWidget(
-              id: song.id,
-              type: ArtworkType.AUDIO,
-              artworkWidth: 44,
-              artworkHeight: 44,
-              artworkBorder: BorderRadius.circular(6),
-              nullArtworkWidget: Icon(Icons.music_note, color: p.accent2),
+            leading: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 300),
+              child: QueryArtworkWidget(
+                key: ValueKey<int>(song.id),
+                id: song.id,
+                type: ArtworkType.AUDIO,
+                artworkWidth: 44,
+                artworkHeight: 44,
+                artworkBorder: BorderRadius.circular(6),
+                nullArtworkWidget: Icon(Icons.music_note, color: p.accent2),
+              ),
             ),
             title:
                 Text(song.title, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -825,7 +918,7 @@ class MiniPlayer extends StatelessWidget {
               },
             ),
             onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const NowPlayingScreen()),
+              fadeRoute((_) => const NowPlayingScreen()),
             ),
           ),
         );

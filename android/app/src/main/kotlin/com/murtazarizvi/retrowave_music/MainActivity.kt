@@ -339,6 +339,10 @@ class MainActivity : FlutterFragmentActivity() {
                             ) {
                                 result.success(true)
                             } else {
+                                // A second request must never orphan
+                                // the first one's caller — its future
+                                // would hang forever.
+                                pendingPermResult?.success(false)
                                 pendingPermResult = result
                                 ActivityCompat.requestPermissions(
                                     this,
@@ -357,7 +361,14 @@ class MainActivity : FlutterFragmentActivity() {
                                 if (type == "artist") MediaStore.Audio.Media.ARTIST_ID
                                 else MediaStore.Audio.Media.ALBUM_ID
                             runMediaQuery(result) {
-                                querySongsList("$column = ?", arrayOf(id.toString()))
+                                // Not music-only: the Albums tab's
+                                // counts come from MediaStore, which
+                                // counts ALL audio in the album — the
+                                // detail list must match its own count.
+                                querySongsList(
+                                    "$column = ?", arrayOf(id.toString()),
+                                    musicOnly = false
+                                )
                             }
                         }
                         "queryArtwork" -> {
@@ -451,7 +462,8 @@ class MainActivity : FlutterFragmentActivity() {
 
     private fun querySongsList(
         selection: String?,
-        selectionArgs: Array<String>?
+        selectionArgs: Array<String>?,
+        musicOnly: Boolean = true
     ): List<Map<String, Any?>> {
         val uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
         val projection = arrayOf(
@@ -463,10 +475,13 @@ class MainActivity : FlutterFragmentActivity() {
             MediaStore.Audio.Media.DURATION,
             MediaStore.Audio.Media.DATA
         )
-        val sel = if (selection == null)
-            MediaStore.Audio.Media.IS_MUSIC + " != 0"
-        else
-            MediaStore.Audio.Media.IS_MUSIC + " != 0 AND (" + selection + ")"
+        val sel = when {
+            selection == null ->
+                if (musicOnly) MediaStore.Audio.Media.IS_MUSIC + " != 0" else null
+            musicOnly ->
+                MediaStore.Audio.Media.IS_MUSIC + " != 0 AND (" + selection + ")"
+            else -> selection
+        }
         val out = mutableListOf<Map<String, Any?>>()
         contentResolver.query(
             uri, projection, sel, selectionArgs, MediaStore.Audio.Media.TITLE + " ASC"
@@ -690,19 +705,27 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
 
+    private var castPickerButton: MediaRouteButton? = null
+
     private fun showCastPicker() {
-        val button = MediaRouteButton(this)
-        button.routeSelector = MediaRouteSelector.Builder()
-            .addControlCategory(
-                CastMediaControlIntent.categoryForCast(
-                    CastMediaControlIntent.DEFAULT_MEDIA_RECEIVER_APPLICATION_ID
+        // ONE button, created once and kept attached. The old code
+        // built a fresh button per tap and clicked it synchronously:
+        // the click could land before the view was window-attached,
+        // so the chooser silently never appeared — and every tap
+        // leaked another invisible view into the hierarchy.
+        val button = castPickerButton ?: MediaRouteButton(this).also { b ->
+            b.routeSelector = MediaRouteSelector.Builder()
+                .addControlCategory(
+                    CastMediaControlIntent.categoryForCast(
+                        CastMediaControlIntent.DEFAULT_MEDIA_RECEIVER_APPLICATION_ID
+                    )
                 )
-            )
-            .build()
-        // MediaRouteButton can only show its chooser dialog while attached
-        // to a window, so attach it invisibly (1x1) and click it.
-        addContentView(button, ViewGroup.LayoutParams(1, 1))
-        button.performClick()
+                .build()
+            addContentView(b, ViewGroup.LayoutParams(1, 1))
+            castPickerButton = b
+        }
+        // Post the click so it runs after the view is attached.
+        button.post { button.performClick() }
     }
 
     private fun loadCastQueue(items: List<Map<String, Any>>, startIndex: Int) {
@@ -728,6 +751,13 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     override fun onDestroy() {
+        // Never leave a permission caller hanging on a dead activity.
+        try {
+            pendingPermResult?.success(false)
+        } catch (e: Exception) {
+            // ignore
+        }
+        pendingPermResult = null
         releaseEffects()
         try {
             scratchEngine?.releaseAll()

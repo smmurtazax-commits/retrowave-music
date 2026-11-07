@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'audiofx.dart';
+import 'bg.dart';
 import 'feedback.dart';
 import 'glass.dart';
 import 'player.dart';
@@ -87,6 +88,19 @@ class SettingsScreen extends StatelessWidget {
               onTap: () => AudioFx.openAppSettings(),
             ),
             _header(p, 'About'),
+            ListTile(
+              title: const Text('Background player'),
+              subtitle: Text(
+                bgReady
+                    ? 'Ready — lock-screen and notification controls are on'
+                    : 'Not started on this phone — music still plays '
+                        'in the app. Reason: ${bgError ?? 'unknown'}',
+              ),
+              leading: Icon(
+                bgReady ? Icons.lock_clock : Icons.lock_clock_outlined,
+                color: bgReady ? p.accent : null,
+              ),
+            ),
             ListTile(
               title: const Text('About RetroWave Music'),
               trailing: const Icon(Icons.chevron_right),

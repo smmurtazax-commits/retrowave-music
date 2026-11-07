@@ -2,9 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:just_audio_background/just_audio_background.dart';
 import 'media_query.dart';
 
 import 'art_hue.dart';
+import 'bg.dart';
 import 'settings_store.dart';
 
 /// Single shared player for the whole app.
@@ -48,12 +50,25 @@ class PlayerService {
       } else {
         uri = Uri.file(s.data);
       }
-      // No tag (build #12): the tag existed for the background
-      // plugin's lock-screen display. That plugin is removed — its
-      // handler never finished starting on the user's phone and it
-      // took every song load down with it (build #11's error report
-      // named it). Plain sources keep playback fully self-contained.
-      return AudioSource.uri(uri);
+      // Tags exist for the background player's lock-screen /
+      // notification display — and they are used ONLY when the
+      // background setup actually succeeded (bgReady). If it
+      // failed, sources stay plain: the exact build #12 shape that
+      // playback was proven with, so a background failure can never
+      // take the music down again. (No artUri either way for now —
+      // it stays a suspect until the tagged path is proven.)
+      if (!bgReady) return AudioSource.uri(uri);
+      return AudioSource.uri(
+        uri,
+        tag: MediaItem(
+          id: s.id.toString(),
+          title: s.title,
+          artist: (s.artist == null || s.artist == '<unknown>')
+              ? 'Unknown artist'
+              : s.artist,
+          album: s.album ?? '',
+        ),
+      );
     }).toList();
   }
 
@@ -69,9 +84,19 @@ class PlayerService {
     return s;
   }
 
-  Future<void> playQueue(List<SongModel> songs, int startIndex) async {
+  /// Monotonic token identifying the newest play request. Rapid
+  /// taps on two songs used to interleave their loads on the one
+  /// shared player — the screen could show one song while another
+  /// played. Now every await in a load re-checks its token; a
+  /// superseded load quietly bows out.
+  int _playGen = 0;
+  int get currentPlayGen => _playGen;
+
+  Future<int> playQueue(List<SongModel> songs, int startIndex) async {
+    final gen = ++_playGen;
     _markSelf();
     await _ready();
+    if (gen != _playGen) return gen; // a newer tap already won
     queue = List<SongModel>.of(songs);
     playbackError.value = null;
     lastPlayerError = null;
@@ -117,11 +142,12 @@ class PlayerService {
         loadError = e;
         lastPlayerError = _shortError(e);
       }
+      if (gen != _playGen) return gen; // superseded mid-load
     }
     if (loadedRung < 0) {
       playbackError.value = "That song couldn't be played. "
           'Reason: ${lastPlayerError ?? loadError}';
-      return;
+      return gen;
     }
     if (loadedRung == 2) {
       // The single-song rung loaded — shrink the queue to match what
@@ -129,12 +155,14 @@ class PlayerService {
       // song display stay truthful for this session.
       queue = [songs[startIndex]];
     }
+    if (gen != _playGen) return gen;
     try {
       await player.play();
     } catch (e) {
       lastPlayerError = _shortError(e);
       playbackError.value = "That song couldn't be played. Reason: $lastPlayerError";
     }
+    return gen;
   }
 
   SongModel? get currentSong {
@@ -171,8 +199,12 @@ class PlayerService {
   bool _selfInitiated = false;
 
   void _markSelf() {
+    // No fixed time window anymore: a slow load (long queue, big
+    // file) could outlast it and the guard would then pause the
+    // user's OWN tap. The flag now clears on the first playing
+    // state instead (see the state listener) — however long the
+    // load took, the tap stays "self" until sound actually starts.
     _selfInitiated = true;
-    Future.delayed(const Duration(seconds: 2), () => _selfInitiated = false);
   }
 
   /// Play pressed from inside the app (as opposed to a Bluetooth /
@@ -205,7 +237,10 @@ class PlayerService {
     // and in the message the user sees, instead of vanishing.
     player.playbackEventStream.listen((_) {}, onError: (Object e) {
       lastPlayerError = _shortError(e);
-      if (playbackError.value == null) {
+      // A failed load attempt's error can also arrive here AFTER a
+      // later attempt already succeeded — never show "couldn't be
+      // played" while music is audibly playing.
+      if (playbackError.value == null && !player.playing) {
         playbackError.value =
             "That song couldn't be played. Reason: $lastPlayerError";
       }
@@ -219,6 +254,7 @@ class PlayerService {
           player.pause();
         }
       }
+      if (state.playing) _selfInitiated = false;
       if (state.playing) {
         _fadeTimer ??= Timer.periodic(
             const Duration(milliseconds: 100), (_) => _fadeTick());
@@ -248,7 +284,13 @@ class PlayerService {
       return;
     }
     final dur = player.duration;
-    if (dur == null) return;
+    if (dur == null) {
+      // No readable duration means no fade window can be computed —
+      // that must restore full volume, never leave the song muted
+      // (the track-change hook may have zeroed it for a crossfade).
+      if (player.volume != 1.0) player.setVolume(1.0);
+      return;
+    }
     final fadeMs = fadeSec * 1000.0;
     final posMs = player.position.inMilliseconds.toDouble();
     final remaining = dur.inMilliseconds.toDouble() - posMs;

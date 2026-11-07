@@ -163,9 +163,26 @@ RetroPalette lightVariant(RetroPalette d) {
 /// The palette the app should use right now. While a song is loaded,
 /// its artwork hue (see art_hue.dart) is blended through every color,
 /// so all pages quietly wear the playing album's colors.
+/// A soft fade for opening screens (Now Playing above all): the
+/// new page melts in instead of sliding over. Used by the music
+/// flow — library taps, the mini player, AI Studio playback.
+PageRoute<T> fadeRoute<T>(WidgetBuilder builder) => PageRouteBuilder<T>(
+      transitionDuration: const Duration(milliseconds: 280),
+      reverseTransitionDuration: const Duration(milliseconds: 220),
+      pageBuilder: (context, animation, secondaryAnimation) =>
+          builder(context),
+      transitionsBuilder: (context, animation, secondaryAnimation, child) =>
+          FadeTransition(
+        opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+        child: child,
+      ),
+    );
+
 RetroPalette get palette {
   final c = customColor.value;
-  final base = c != null ? paletteFor(c) : palettes[themeIndex.value];
+  final base = c != null
+      ? paletteFor(c)
+      : palettes[themeIndex.value.clamp(0, palettes.length - 1)];
   final themed = effectiveDark.value ? base : lightVariant(base);
   final hue = artHue.value;
   if (hue == null) return themed;

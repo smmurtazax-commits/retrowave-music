@@ -219,17 +219,34 @@ class QueryArtworkWidget extends StatelessWidget {
   static final Map<String, Future<Uint8List?>> _cache =
       <String, Future<Uint8List?>>{};
 
+  /// Bounded artwork cache: scrolling a big library must not keep
+  /// every image's bytes alive for the whole process, and a failed
+  /// load must not be cached forever (one transient hiccup used to
+  /// blank that artwork until the app was restarted).
+  static const int _cacheCap = 150;
+
   /// Raw artwork bytes for (type, id), cached — shared by the widget
   /// and by features that need the pixels themselves (artwork hue).
   static Future<Uint8List?> artworkBytes(ArtworkType type, int id) {
     final key = '${type.name}:$id';
-    return _cache.putIfAbsent(
-      key,
-      () => _channel.invokeMethod<Uint8List>(
-        'queryArtwork',
-        <String, dynamic>{'id': id, 'type': type.name},
-      ),
+    final hit = _cache.remove(key);
+    if (hit != null) {
+      _cache[key] = hit; // refresh recency
+      return hit;
+    }
+    final future = _channel.invokeMethod<Uint8List>(
+      'queryArtwork',
+      <String, dynamic>{'id': id, 'type': type.name},
     );
+    future.then((_) {}, onError: (_) {
+      // Failures are not cached: the next display retries.
+      if (identical(_cache[key], future)) _cache.remove(key);
+    });
+    _cache[key] = future;
+    while (_cache.length > _cacheCap) {
+      _cache.remove(_cache.keys.first);
+    }
+    return future;
   }
 
   Future<Uint8List?> _load() => artworkBytes(type, id);

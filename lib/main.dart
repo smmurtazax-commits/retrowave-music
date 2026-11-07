@@ -1,10 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:just_audio_background/just_audio_background.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'art_hue.dart';
 import 'audiofx.dart';
+import 'bg.dart';
 import 'fonts.dart';
 import 'splash.dart';
 import 'player.dart';
@@ -19,7 +21,10 @@ Future<void> main() async {
   // anyway: nothing before runApp may ever keep the app from opening.
   try {
     final prefs = await SharedPreferences.getInstance();
-    themeIndex.value = prefs.getInt('theme') ?? 0;
+    // Clamp: a stored index from another build's palette count
+    // must never crash the palette getter at every launch.
+    themeIndex.value =
+        (prefs.getInt('theme') ?? 0).clamp(0, palettes.length - 1);
     fontIndex.value = prefs.getInt('font') ?? 0;
     final savedColor = prefs.getInt('customColor');
     if (savedColor != null) {
@@ -34,14 +39,29 @@ Future<void> main() async {
   } catch (_) {
     // A bad saved value must never freeze the launch screen.
   }
-  // Build #12 note: NO background-audio setup here, on purpose. The
-  // phone's own error report (build #11) proved the background
-  // handler never finished starting on this device, and because
-  // every song load routed through it, nothing could play. The
-  // background plugin is removed for now so in-app playback stands
-  // entirely on its own; lock-screen/notification controls return
-  // as a separate, carefully-tested step once music itself is
-  // proven on the phone.
+  // Background playback setup (build #14 — the careful return).
+  // What changed since it last broke playback: the plugin set is
+  // the current aligned release, the notification gets a dedicated
+  // simple icon (an adaptive launcher icon cannot serve as one and
+  // can stop the media service from starting), and — most
+  // important — the RESULT IS KEPT. If setup fails, the app still
+  // opens, playback uses plain sources (the proven build #12
+  // shape), and the refusal is readable in Settings instead of
+  // silently taking every song down with it.
+  try {
+    await JustAudioBackground.init(
+      androidNotificationChannelId: 'com.murtazarizvi.retrowave.channel.audio',
+      androidNotificationChannelName: 'RetroWave playback',
+      androidNotificationOngoing: true,
+      androidNotificationIcon: 'drawable/ic_notification',
+    ).timeout(const Duration(seconds: 8), onTimeout: () {
+      throw TimeoutException('Background setup timed out after 8s');
+    });
+    bgReady = true;
+  } catch (e) {
+    bgReady = false;
+    bgError = e.toString();
+  }
   runApp(const RetroWaveApp());
   // The remaining playback plumbing starts only AFTER the UI is on
   // screen; each step is guarded so none of it can stall the app.

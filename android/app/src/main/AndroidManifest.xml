@@ -33,12 +33,27 @@
             </intent-filter>
         </activity>
 
-        <!-- Build #12: the background-audio plugin (audio_service) is
-             removed — its handler never finished starting on the
-             user's phone and blocked all playback — so its service
-             and receiver declarations are removed with it. They
-             return when background controls are restored as a
-             separate step. -->
+        <!-- Background playback (build #14 restoration): lock-screen
+             and notification controls, Samsung Now Bar. The service
+             is declared with its mediaPlayback foreground type, and
+             the app passes a dedicated simple notification icon —
+             the two things a media service needs to start cleanly. -->
+        <service
+            android:name="com.ryanheise.audioservice.AudioService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.media.session.MediaButtonReceiver"/>
+            </intent-filter>
+        </service>
+        <receiver
+            android:name="com.ryanheise.audioservice.MediaButtonReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.media.BUTTON"/>
+                <action android:name="android.intent.action.MEDIA_BUTTON"/>
+            </intent-filter>
+        </receiver>
 
         <!-- Split screen: stay resumed alongside the other app -->
         <meta-data
